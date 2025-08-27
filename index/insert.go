@@ -72,6 +72,8 @@ func (bt *BTree) splitNode(n *node) (uint64, *node) {
 		rightNode.values = append(rightNode.values, n.values[mid:]...)
 		n.keys = n.keys[:mid]
 		n.values = n.values[:mid]
+		rightNode.next = n.next
+		n.next = rightNode
 		promotedKey := rightNode.keys[0]
 		return promotedKey, rightNode
 
