@@ -9,7 +9,7 @@ import (
 type NodeType uint8
 
 const (
-	MaxKeys = 3
+	MaxKeys = 8
 	MinKeys = MaxKeys / 2
 
 	NodeTypeInternal = iota
