@@ -71,9 +71,12 @@ func (p *Pager) WritePage(page *Page) error {
 		return fmt.Errorf("pager: failed to seek to page: %w", err)
 	}
 
-	_, err = p.file.Write(page.Data[:])
+	n, err := p.file.Write(page.Data[:])
 	if err != nil {
 		return fmt.Errorf("pager: failed to write page: %w", err)
+	}
+	if n != PageSize {
+		return fmt.Errorf("pager: partial write: wrote %d bytes, expected %d bytes", n, PageSize)
 	}
 
 	err = p.file.Sync()
@@ -101,6 +104,49 @@ func (p *Pager) NewPage() (*Page, error) {
 	return page, nil
 }
 
+func (p *Pager) WriteAtOffset(offset uint64, data []byte) error {
+	_, err := p.file.Seek(int64(offset), 0)
+	if err != nil {
+		return fmt.Errorf("pager: failed to seek to offset: %v", err)
+	}
+
+	n, err := p.file.Write(data)
+	if err != nil {
+		return fmt.Errorf("pager: failed to write at offset: %v", err)
+	}
+	if n != len(data) {
+		return fmt.Errorf("pager: partial write: wrote %d bytes, expected %d bytes", n, len(data))
+	}
+
+	return p.file.Sync()
+}
+
+func (p *Pager) ReadAtOffset(offset uint64, size int) ([]byte, error) {
+	_, err := p.file.Seek(int64(offset), 0)
+	if err != nil {
+		return nil, fmt.Errorf("pager: failed to seek to offset: %v", err)
+	}
+
+	data := make([]byte, size)
+	n, err := p.file.Read(data)
+	if err != nil {
+		return nil, fmt.Errorf("pager: failed to read at offset: %v", err)
+	}
+	if n != size {
+		return nil, fmt.Errorf("pager: partial read: read %d bytes, expected %d bytes", n, size)
+	}
+
+	return data, nil
+}
+
 func (p *Pager) GetNumPages() uint32 {
 	return p.numPages
+}
+
+func (p *Pager) GetSize() (uint64, error) {
+	stat, err := p.file.Stat()
+	if err != nil {
+		return 0, err
+	}
+	return uint64(stat.Size()), nil
 }

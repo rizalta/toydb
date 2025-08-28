@@ -2,6 +2,7 @@
 package index
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -15,6 +16,8 @@ const (
 	NodeTypeInternal = iota
 	NodeTypeLeaf
 )
+
+var ErrKeyNotFound = errors.New("index: key not found")
 
 type node struct {
 	nodeType NodeType
@@ -56,7 +59,7 @@ func NewBTree() *BTree {
 
 func (bt *BTree) Search(key uint64) (uint64, error) {
 	if bt.root == nil {
-		return 0, fmt.Errorf("index: empty tree")
+		return 0, ErrKeyNotFound
 	}
 
 	n := bt.root
@@ -75,7 +78,7 @@ func (bt *BTree) Search(key uint64) (uint64, error) {
 		}
 	}
 
-	return 0, fmt.Errorf("index: key not found")
+	return 0, ErrKeyNotFound
 }
 
 func (bt *BTree) DebugPrint() {
