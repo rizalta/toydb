@@ -13,7 +13,6 @@ import (
 type Pager interface {
 	WriteAtOffset(offset uint64, data []byte) error
 	ReadAtOffset(offset uint64, size int) ([]byte, error)
-	GetSize() (uint64, error)
 	Close() error
 }
 
@@ -189,21 +188,31 @@ func (s *Store) Get(key string) ([]byte, bool, error) {
 }
 
 func (s *Store) Delete(key string) (bool, error) {
-	if _, err := s.index.Search(hashKey(key)); err != nil {
+	offset, err := s.index.Search(hashKey(key))
+	if err != nil {
 		if errors.Is(err, index.ErrKeyNotFound) {
 			return false, nil
 		}
 		return false, err
 	}
 
-	record := &Record{
+	record, err := s.readRecord(offset)
+	if err != nil {
+		return false, err
+	}
+
+	if record.RecordType == RecordTypeDelete {
+		return false, nil
+	}
+
+	record = &Record{
 		RecordType: RecordTypeDelete,
 		Key:        key,
 		Value:      nil,
 	}
 
 	serialized := record.serialize()
-	err := s.pager.WriteAtOffset(s.offset, serialized)
+	err = s.pager.WriteAtOffset(s.offset, serialized)
 	if err != nil {
 		return false, fmt.Errorf("storage: failed to write tombstone: %v", err)
 	}
@@ -212,4 +221,8 @@ func (s *Store) Delete(key string) (bool, error) {
 	s.offset += uint64(len(serialized))
 
 	return true, nil
+}
+
+func (s *Store) Close() error {
+	return s.pager.Close()
 }

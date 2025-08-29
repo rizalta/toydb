@@ -14,11 +14,9 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer pager.Close()
-
 	index := index.NewBTree()
-
 	storage := storage.NewStore(pager, index)
+	defer storage.Close()
 
 	val, _, _ := storage.Get("hello")
 	fmt.Printf("%s", val)
