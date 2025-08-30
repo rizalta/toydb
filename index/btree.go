@@ -28,6 +28,8 @@ type Pager interface {
 	NewPage() (*pager.Page, error)
 	ReadPage(pageID pager.PageID) (*pager.Page, error)
 	WritePage(page *pager.Page) error
+	GetNumPages() uint32
+	Close() error
 }
 
 type Header struct {
@@ -35,13 +37,13 @@ type Header struct {
 	keyCount uint16
 	next     pager.PageID
 	checksum uint32
+	padding  [4]byte
 }
 
 func (h *Header) serialize(data []byte) {
 	binary.LittleEndian.PutUint16(data[0:2], uint16(h.nodeType))
 	binary.LittleEndian.PutUint16(data[2:4], h.keyCount)
 	binary.LittleEndian.PutUint32(data[4:8], uint32(h.next))
-	binary.LittleEndian.PutUint32(data[8:12], h.checksum)
 }
 
 func (h *Header) deserialize(data []byte) {
@@ -85,6 +87,35 @@ func newInternalNode() *node {
 }
 
 func NewBTree(p Pager) (*BTree, error) {
+	if p.GetNumPages() == 0 {
+		meta, err := p.NewPage()
+		if err != nil {
+			return nil, err
+		}
+		root, err := p.NewPage()
+		if err != nil {
+			return nil, err
+		}
+
+		binary.LittleEndian.PutUint32(meta.Data[:], uint32(root.ID))
+
+		err = p.WritePage(meta)
+		if err != nil {
+			return nil, err
+		}
+
+		n := newLeafNode()
+
+		bt := &BTree{
+			root:  root.ID,
+			pager: p,
+		}
+
+		err = bt.writeNode(root, n)
+
+		return bt, err
+	}
+
 	meta, err := p.ReadPage(0)
 	if err != nil {
 		return nil, err
@@ -121,7 +152,7 @@ func (bt *BTree) readNode(pageID pager.PageID) (*node, error) {
 		next:     header.next,
 	}
 
-	keyOffset := 12
+	keyOffset := 16
 	pointersOffset := keyOffset + int(8*header.keyCount)
 
 	for i := range n.keys {
@@ -139,11 +170,47 @@ func (bt *BTree) readNode(pageID pager.PageID) (*node, error) {
 		n.children = make([]pager.PageID, header.keyCount+1)
 		for i := range n.children {
 			offset := pointersOffset + (i * 4)
-			n.children[i] = pager.PageID(binary.LittleEndian.Uint64(page.Data[offset:]))
+			n.children[i] = pager.PageID(binary.LittleEndian.Uint32(page.Data[offset:]))
 		}
 	}
 
 	return n, nil
+}
+
+func (bt *BTree) writeNode(page *pager.Page, n *node) error {
+	keyCount := len(n.keys)
+	header := &Header{
+		nodeType: n.nodeType,
+		keyCount: uint16(keyCount),
+		next:     n.next,
+	}
+
+	header.serialize(page.Data[0:16])
+
+	keyOffset := 16
+	pointersOffset := keyOffset + (keyCount * 8)
+
+	for i, k := range n.keys {
+		offset := keyOffset + (i * 8)
+		binary.LittleEndian.PutUint64(page.Data[offset:], k)
+	}
+
+	if n.nodeType == NodeTypeLeaf {
+		for i, v := range n.values {
+			offset := pointersOffset + (i * 8)
+			binary.LittleEndian.PutUint64(page.Data[offset:], v)
+		}
+	} else {
+		for i, c := range n.children {
+			offset := pointersOffset + (i * 4)
+			binary.LittleEndian.PutUint32(page.Data[offset:], uint32(c))
+		}
+	}
+
+	checksum := crc32.ChecksumIEEE(page.Data[:])
+	binary.LittleEndian.PutUint32(page.Data[8:], checksum)
+
+	return bt.pager.WritePage(page)
 }
 
 func (bt *BTree) Search(key uint64) (uint64, error) {
