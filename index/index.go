@@ -61,7 +61,7 @@ type node struct {
 	next     pager.PageID
 }
 
-type BTree struct {
+type Index struct {
 	pager Pager
 	root  pager.PageID
 }
@@ -86,7 +86,7 @@ func newInternalNode() *node {
 	}
 }
 
-func NewBTree(p Pager) (*BTree, error) {
+func NewIndex(p Pager) (*Index, error) {
 	if p.GetNumPages() == 0 {
 		meta, err := p.NewPage()
 		if err != nil {
@@ -106,14 +106,14 @@ func NewBTree(p Pager) (*BTree, error) {
 
 		n := newLeafNode()
 
-		bt := &BTree{
+		idx := &Index{
 			root:  root.ID,
 			pager: p,
 		}
 
-		err = bt.writeNode(root, n)
+		err = idx.writeNode(root, n)
 
-		return bt, err
+		return idx, err
 	}
 
 	meta, err := p.ReadPage(0)
@@ -123,14 +123,14 @@ func NewBTree(p Pager) (*BTree, error) {
 
 	rootPageID := binary.LittleEndian.Uint32(meta.Data[:])
 
-	return &BTree{
+	return &Index{
 		root:  pager.PageID(rootPageID),
 		pager: p,
 	}, nil
 }
 
-func (bt *BTree) readNode(pageID pager.PageID) (*node, *pager.Page, error) {
-	page, err := bt.pager.ReadPage(pageID)
+func (idx *Index) readNode(pageID pager.PageID) (*node, *pager.Page, error) {
+	page, err := idx.pager.ReadPage(pageID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -177,7 +177,7 @@ func (bt *BTree) readNode(pageID pager.PageID) (*node, *pager.Page, error) {
 	return n, page, nil
 }
 
-func (bt *BTree) writeNode(page *pager.Page, n *node) error {
+func (idx *Index) writeNode(page *pager.Page, n *node) error {
 	keyCount := len(n.keys)
 	header := &Header{
 		nodeType: n.nodeType,
@@ -210,15 +210,15 @@ func (bt *BTree) writeNode(page *pager.Page, n *node) error {
 	checksum := crc32.ChecksumIEEE(page.Data[:])
 	binary.LittleEndian.PutUint32(page.Data[8:], checksum)
 
-	return bt.pager.WritePage(page)
+	return idx.pager.WritePage(page)
 }
 
-func (bt *BTree) Search(key uint64) (uint64, error) {
-	if bt.root == 0 {
+func (idx *Index) Search(key uint64) (uint64, error) {
+	if idx.root == 0 {
 		return 0, ErrKeyNotFound
 	}
 
-	n, _, err := bt.readNode(bt.root)
+	n, _, err := idx.readNode(idx.root)
 	if err != nil {
 		return 0, err
 	}
@@ -228,7 +228,7 @@ func (bt *BTree) Search(key uint64) (uint64, error) {
 		for i < len(n.keys) && key >= n.keys[i] {
 			i++
 		}
-		n, _, err = bt.readNode(n.children[i])
+		n, _, err = idx.readNode(n.children[i])
 		if err != nil {
 			return 0, err
 		}

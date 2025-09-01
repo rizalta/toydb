@@ -14,7 +14,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	index := index.NewBTree()
+	index := index.NewIndex()
 	storage := storage.NewStore(pager, index)
 	defer storage.Close()
 
