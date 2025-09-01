@@ -129,17 +129,17 @@ func NewBTree(p Pager) (*BTree, error) {
 	}, nil
 }
 
-func (bt *BTree) readNode(pageID pager.PageID) (*node, error) {
+func (bt *BTree) readNode(pageID pager.PageID) (*node, *pager.Page, error) {
 	page, err := bt.pager.ReadPage(pageID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	storedChecksum := binary.LittleEndian.Uint32(page.Data[8:12])
 	binary.LittleEndian.PutUint32(page.Data[8:12], 0)
 	calculatedChecksum := crc32.ChecksumIEEE(page.Data[:])
 	if calculatedChecksum != storedChecksum {
-		return nil, ErrChecksumMismatch
+		return nil, nil, ErrChecksumMismatch
 	}
 
 	binary.LittleEndian.PutUint32(page.Data[8:12], storedChecksum)
@@ -174,7 +174,7 @@ func (bt *BTree) readNode(pageID pager.PageID) (*node, error) {
 		}
 	}
 
-	return n, nil
+	return n, page, nil
 }
 
 func (bt *BTree) writeNode(page *pager.Page, n *node) error {
@@ -218,7 +218,7 @@ func (bt *BTree) Search(key uint64) (uint64, error) {
 		return 0, ErrKeyNotFound
 	}
 
-	n, err := bt.readNode(bt.root)
+	n, _, err := bt.readNode(bt.root)
 	if err != nil {
 		return 0, err
 	}
@@ -228,7 +228,7 @@ func (bt *BTree) Search(key uint64) (uint64, error) {
 		for i < len(n.keys) && key >= n.keys[i] {
 			i++
 		}
-		n, err = bt.readNode(n.children[i])
+		n, _, err = bt.readNode(n.children[i])
 		if err != nil {
 			return 0, err
 		}
