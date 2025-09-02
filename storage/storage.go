@@ -17,7 +17,7 @@ type Pager interface {
 }
 
 type Index interface {
-	Insert(key uint64, value uint64)
+	Insert(key uint64, value uint64) error
 	Search(key uint64) (uint64, error)
 	Delete(key uint64) error
 }
@@ -137,7 +137,10 @@ func (s *Store) Put(key string, value []byte) error {
 		return fmt.Errorf("storage: failed to write record: %v", err)
 	}
 
-	s.index.Insert(hashKey(key), s.offset)
+	err = s.index.Insert(hashKey(key), s.offset)
+	if err != nil {
+		return fmt.Errorf("storage: failed to index key: %v", err)
+	}
 
 	s.offset += uint64(len(serialized))
 
@@ -217,7 +220,10 @@ func (s *Store) Delete(key string) (bool, error) {
 		return false, fmt.Errorf("storage: failed to write tombstone: %v", err)
 	}
 
-	s.index.Insert(hashKey(key), s.offset)
+	err = s.index.Insert(hashKey(key), s.offset)
+	if err != nil {
+		return false, fmt.Errorf("storage: failed to index key: %v", err)
+	}
 	s.offset += uint64(len(serialized))
 
 	return true, nil

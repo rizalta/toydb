@@ -73,8 +73,9 @@ func NewMockIndex() *MockIndex {
 	}
 }
 
-func (mi *MockIndex) Insert(key uint64, value uint64) {
+func (mi *MockIndex) Insert(key uint64, value uint64) error {
 	mi.index[key] = value
+	return nil
 }
 
 func (mi *MockIndex) Search(key uint64) (uint64, error) {
