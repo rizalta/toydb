@@ -2,6 +2,7 @@ package index
 
 import (
 	"encoding/binary"
+	"sort"
 
 	"github.com/rizalta/toydb/pager"
 )
@@ -42,11 +43,9 @@ func (idx *Index) insert(pageID pager.PageID, key, value uint64) (uint64, pager.
 		return 0, 0, err
 	}
 	if n.nodeType == NodeTypeLeaf {
-		i := 0
-		for i < len(n.keys) && key > n.keys[i] {
-			i++
-		}
-
+		i := sort.Search(len(n.keys), func(j int) bool {
+			return n.keys[j] >= key
+		})
 		if i < len(n.keys) && n.keys[i] == key {
 			n.values[i] = value
 			err := idx.writeNode(page, n)
@@ -59,22 +58,20 @@ func (idx *Index) insert(pageID pager.PageID, key, value uint64) (uint64, pager.
 		copy(n.values[i+1:], n.values[i:])
 		n.keys[i] = key
 		n.values[i] = value
+		if len(n.keys) > MaxKeys {
+			return idx.splitNode(page, n)
+		}
 
 		if err := idx.writeNode(page, n); err != nil {
 			return 0, 0, err
 		}
 
-		if len(n.keys) > MaxKeys {
-			return idx.splitNode(pageID)
-		}
-
 		return 0, 0, nil
 	}
 
-	i := 0
-	for i < len(n.keys) && key >= n.keys[i] {
-		i++
-	}
+	i := sort.Search(len(n.keys), func(j int) bool {
+		return n.keys[j] > key
+	})
 
 	promotedKey, newSiblingID, err := idx.insert(n.children[i], key, value)
 	if err != nil {
@@ -87,24 +84,22 @@ func (idx *Index) insert(pageID pager.PageID, key, value uint64) (uint64, pager.
 		copy(n.children[i+2:], n.children[i+1:])
 		n.keys[i] = promotedKey
 		n.children[i+1] = newSiblingID
+
+		if len(n.keys) > MaxKeys {
+			return idx.splitNode(page, n)
+		}
+
 		if err := idx.writeNode(page, n); err != nil {
 			return 0, 0, err
 		}
 
-		if len(n.keys) > MaxKeys {
-			return idx.splitNode(pageID)
-		}
 		return 0, 0, nil
 	}
 
 	return 0, 0, nil
 }
 
-func (idx *Index) splitNode(pageID pager.PageID) (uint64, pager.PageID, error) {
-	n, page, err := idx.readNode(pageID)
-	if err != nil {
-		return 0, 0, err
-	}
+func (idx *Index) splitNode(page *pager.Page, n *node) (uint64, pager.PageID, error) {
 	siblingPage, err := idx.pager.NewPage()
 	if err != nil {
 		return 0, 0, err

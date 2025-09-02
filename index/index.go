@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"hash/crc32"
+	"sort"
 
 	"github.com/rizalta/toydb/pager"
 )
@@ -207,6 +208,7 @@ func (idx *Index) writeNode(page *pager.Page, n *node) error {
 		}
 	}
 
+	binary.LittleEndian.PutUint32(page.Data[8:], 0)
 	checksum := crc32.ChecksumIEEE(page.Data[:])
 	binary.LittleEndian.PutUint32(page.Data[8:], checksum)
 
@@ -224,21 +226,26 @@ func (idx *Index) Search(key uint64) (uint64, error) {
 	}
 
 	for n.nodeType == NodeTypeInternal {
-		i := 0
-		for i < len(n.keys) && key >= n.keys[i] {
-			i++
-		}
+		i := sort.Search(len(n.keys), func(j int) bool {
+			return n.keys[j] > key
+		})
 		n, _, err = idx.readNode(n.children[i])
 		if err != nil {
 			return 0, err
 		}
 	}
 
-	for i, k := range n.keys {
-		if k == key {
-			return n.values[i], nil
-		}
+	i := sort.Search(len(n.keys), func(j int) bool {
+		return n.keys[j] >= key
+	})
+
+	if i < len(n.keys) && n.keys[i] == key {
+		return n.values[i], nil
 	}
 
 	return 0, ErrKeyNotFound
+}
+
+func (idx *Index) Close() error {
+	return idx.pager.Close()
 }
