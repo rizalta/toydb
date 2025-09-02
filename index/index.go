@@ -89,32 +89,30 @@ func newInternalNode() *node {
 
 func NewIndex(p Pager) (*Index, error) {
 	if p.GetNumPages() == 0 {
-		meta, err := p.NewPage()
+		_, err := p.NewPage()
 		if err != nil {
 			return nil, err
 		}
-		root, err := p.NewPage()
+		rootPage, err := p.NewPage()
 		if err != nil {
 			return nil, err
 		}
-
-		binary.LittleEndian.PutUint32(meta.Data[:], uint32(root.ID))
-
-		err = p.WritePage(meta)
-		if err != nil {
-			return nil, err
-		}
-
-		n := newLeafNode()
 
 		idx := &Index{
-			root:  root.ID,
+			root:  rootPage.ID,
 			pager: p,
 		}
 
-		err = idx.writeNode(root, n)
+		if err := idx.updateRootInMeta(); err != nil {
+			return nil, err
+		}
 
-		return idx, err
+		rootNode := newLeafNode()
+		if err := idx.writeNode(rootPage, rootNode); err != nil {
+			return nil, err
+		}
+
+		return idx, nil
 	}
 
 	meta, err := p.ReadPage(0)
@@ -213,6 +211,17 @@ func (idx *Index) writeNode(page *pager.Page, n *node) error {
 	binary.LittleEndian.PutUint32(page.Data[8:], checksum)
 
 	return idx.pager.WritePage(page)
+}
+
+func (idx *Index) updateRootInMeta() error {
+	meta, err := idx.pager.ReadPage(0)
+	if err != nil {
+		return err
+	}
+
+	binary.LittleEndian.PutUint32(meta.Data[:], uint32(idx.root))
+
+	return idx.pager.WritePage(meta)
 }
 
 func (idx *Index) Search(key uint64) (uint64, error) {

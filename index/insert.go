@@ -1,7 +1,6 @@
 package index
 
 import (
-	"encoding/binary"
 	"sort"
 
 	"github.com/rizalta/toydb/pager"
@@ -25,12 +24,7 @@ func (idx *Index) Insert(key uint64, value uint64) error {
 		}
 
 		idx.root = rootPage.ID
-		meta, err := idx.pager.ReadPage(0)
-		if err != nil {
-			return err
-		}
-		binary.LittleEndian.PutUint32(meta.Data[:], uint32(rootPage.ID))
-		if err := idx.pager.WritePage(meta); err != nil {
+		if err := idx.updateRootInMeta(); err != nil {
 			return err
 		}
 	}
