@@ -1,25 +1,30 @@
 package index
 
 import (
-	"fmt"
-
 	"github.com/rizalta/toydb/pager"
 )
 
 func (idx *Index) Delete(key uint64) error {
-	if idx.root == nil {
-		return fmt.Errorf("index: found no root for delete")
+	if idx.root == 0 {
+		return ErrKeyNotFound
 	}
 
-	if err := idx.delete(nil, idx.root, key); err != nil {
+	if err := idx.delete(0, idx.root, key); err != nil {
 		return err
 	}
 
-	if idx.root.nodeType == NodeTypeInternal && len(idx.root.keys) == 0 {
-		if len(idx.root.children) > 0 {
-			idx.root = idx.root.children[0]
+	root, _, err := idx.readNode(idx.root)
+	if err != nil {
+		return err
+	}
+	if root.nodeType == NodeTypeInternal && len(root.keys) == 0 {
+		if len(root.children) > 0 {
+			idx.root = root.children[0]
 		} else {
-			idx.root = nil
+			idx.root = 0
+		}
+		if err := idx.updateRootInMeta(); err != nil {
+			return err
 		}
 	}
 
@@ -27,10 +32,6 @@ func (idx *Index) Delete(key uint64) error {
 }
 
 func (idx *Index) delete(parentID, pageID pager.PageID, key uint64) error {
-	parent, parentPage, err := idx.readNode(parentID)
-	if err != nil {
-		return err
-	}
 	n, page, err := idx.readNode(pageID)
 	if err != nil {
 		return err
@@ -45,48 +46,56 @@ func (idx *Index) delete(parentID, pageID pager.PageID, key uint64) error {
 		if i < len(n.keys) && key == n.keys[i] {
 			n.keys = append(n.keys[:i], n.keys[i+1:]...)
 			n.values = append(n.values[:i], n.values[i+1:]...)
-		} else {
-			return fmt.Errorf("index: key not found for delete")
-		}
-
-		if parent != nil && len(n.keys) < MinKeys {
-			for childIdx, child := range parent.children {
-				if child == pageID {
-					return idx.fixUnderflow(parent, childIdx)
-				}
+			if err := idx.writeNode(page, n); err != nil {
+				return err
 			}
+		} else {
+			return ErrKeyNotFound
 		}
-
-		return nil
-	}
-
-	childID := n.children[i]
-	child, childPage, err := idx.readNode(childID)
-	if err != nil {
-		return err
-	}
-	err = idx.delete(pageID, childID, key)
-	if err != nil {
-		return err
-	}
-
-	if len(child.keys) < MinKeys {
-		idx.fixUnderflow(n, i)
+		if parentID != 0 && len(n.keys) < MinKeys {
+			return idx.fixUnderflow(parentID, pageID)
+		}
+	} else {
+		childID := n.children[i]
+		err = idx.delete(pageID, childID, key)
+		if err != nil {
+			return err
+		}
+		child, _, err := idx.readNode(childID)
+		if err != nil {
+			return err
+		}
+		if len(child.keys) < MinKeys {
+			return idx.fixUnderflow(pageID, childID)
+		}
 	}
 
 	return nil
 }
 
-func (idx *Index) fixUnderflow(parentID pager.PageID, childIdx int) error {
+func (idx *Index) fixUnderflow(parentID, childID pager.PageID) error {
 	parentNode, parentPage, err := idx.readNode(parentID)
 	if err != nil {
 		return err
 	}
-	childID := parentNode.children[childIdx]
+
 	childNode, childPage, err := idx.readNode(childID)
 	if err != nil {
 		return err
 	}
+
+	childIdx := -1
+	for i, c := range parentNode.children {
+		if c == childID {
+			childIdx = i
+			break
+		}
+	}
+
+	if childIdx == -1 {
+		return ErrKeyNotFound
+	}
+
 	if childIdx > 0 {
 		leftID := parentNode.children[childIdx-1]
 		leftNode, leftPage, err := idx.readNode(leftID)
@@ -94,8 +103,7 @@ func (idx *Index) fixUnderflow(parentID pager.PageID, childIdx int) error {
 			return err
 		}
 		if len(leftNode.keys) > MinKeys {
-			idx.borrowLeft(leftNode, childNode)
-			parentNode.keys[childIdx-1] = childNode.keys[0]
+			idx.borrowLeft(parentNode, leftNode, childNode, childIdx-1)
 			if err := idx.writeNode(leftPage, leftNode); err != nil {
 				return err
 			}
@@ -113,8 +121,7 @@ func (idx *Index) fixUnderflow(parentID pager.PageID, childIdx int) error {
 			return err
 		}
 		if len(rightNode.keys) > MinKeys {
-			idx.borrowRight(rightNode, childNode)
-			parentNode.keys[childIdx] = rightNode.keys[0]
+			idx.borrowRight(parentNode, rightNode, childNode, childIdx)
 			if err := idx.writeNode(rightPage, rightNode); err != nil {
 				return err
 			}
@@ -135,20 +142,14 @@ func (idx *Index) fixUnderflow(parentID pager.PageID, childIdx int) error {
 		if err := idx.writeNode(leftPage, leftNode); err != nil {
 			return err
 		}
-		if err := idx.writeNode(parentPage, parentNode); err != nil {
-			return err
-		}
-		return idx.writeNode(childPage, childNode)
+		return idx.writeNode(parentPage, parentNode)
 	} else {
 		rightID := parentNode.children[childIdx+1]
-		rightNode, rightPage, err := idx.readNode(rightID)
+		rightNode, _, err := idx.readNode(rightID)
 		if err != nil {
 			return err
 		}
 		idx.merge(parentNode, childNode, rightNode, childIdx)
-		if err := idx.writeNode(rightPage, rightNode); err != nil {
-			return err
-		}
 		if err := idx.writeNode(parentPage, parentNode); err != nil {
 			return err
 		}
@@ -156,28 +157,40 @@ func (idx *Index) fixUnderflow(parentID pager.PageID, childIdx int) error {
 	}
 }
 
-func (idx *Index) borrowLeft(left *node, child *node) {
+func (idx *Index) borrowLeft(parent, left, child *node, sepKeyIdx int) {
 	leftIdx := len(left.keys) - 1
-	child.keys = append([]uint64{left.keys[leftIdx]}, child.keys...)
-	left.keys = left.keys[:leftIdx]
 	if child.nodeType == NodeTypeLeaf {
+		child.keys = append([]uint64{left.keys[leftIdx]}, child.keys...)
 		child.values = append([]uint64{left.values[leftIdx]}, child.values...)
+		left.keys = left.keys[:leftIdx]
 		left.values = left.values[:leftIdx]
+		parent.keys[sepKeyIdx] = child.keys[0]
 	} else {
+		oldSeperator := parent.keys[sepKeyIdx]
+		newSeperator := left.keys[leftIdx]
+		child.keys = append([]uint64{oldSeperator}, child.keys...)
 		child.children = append([]pager.PageID{left.children[leftIdx+1]}, child.children...)
+		left.keys = left.keys[:leftIdx]
 		left.children = left.children[:leftIdx+1]
+		parent.keys[sepKeyIdx] = newSeperator
 	}
 }
 
-func (idx *Index) borrowRight(right *node, child *node) {
-	child.keys = append(child.keys, right.keys[0])
-	right.keys = right.keys[1:]
+func (idx *Index) borrowRight(parent, right, child *node, sepKeyIdx int) {
 	if child.nodeType == NodeTypeLeaf {
+		child.keys = append(child.keys, right.keys[0])
 		child.values = append(child.values, right.values[0])
+		right.keys = right.keys[1:]
 		right.values = right.values[1:]
+		parent.keys[sepKeyIdx] = right.keys[0]
 	} else {
+		oldSeperator := parent.keys[sepKeyIdx]
+		newSeperator := right.keys[0]
+		child.keys = append(child.keys, oldSeperator)
 		child.children = append(child.children, right.children[0])
+		right.keys = right.keys[1:]
 		right.children = right.children[1:]
+		parent.keys[sepKeyIdx] = newSeperator
 	}
 }
 
