@@ -1,6 +1,8 @@
 package index
 
 import (
+	"sort"
+
 	"github.com/rizalta/toydb/pager"
 )
 
@@ -38,10 +40,9 @@ func (idx *Index) delete(parentID, pageID pager.PageID, key uint64) error {
 	}
 
 	if n.nodeType == NodeTypeLeaf {
-		i := 0
-		for i < len(n.keys) && key > n.keys[i] {
-			i++
-		}
+		i := sort.Search(len(n.keys), func(j int) bool {
+			return n.keys[j] >= key
+		})
 		if i < len(n.keys) && key == n.keys[i] {
 			n.keys = append(n.keys[:i], n.keys[i+1:]...)
 			n.values = append(n.values[:i], n.values[i+1:]...)
@@ -55,10 +56,10 @@ func (idx *Index) delete(parentID, pageID pager.PageID, key uint64) error {
 			return idx.fixUnderflow(parentID, pageID)
 		}
 	} else {
-		i := 0
-		for i < len(n.keys) && key >= n.keys[i] {
-			i++
-		}
+		i := sort.Search(len(n.keys), func(j int) bool {
+			return n.keys[j] > key
+		})
+
 		childID := n.children[i]
 		err = idx.delete(pageID, childID, key)
 		if err != nil {
