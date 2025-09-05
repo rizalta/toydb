@@ -2,98 +2,23 @@ package storage
 
 import (
 	"bytes"
-	"fmt"
 	"testing"
-
-	"github.com/rizalta/toydb/index"
 )
 
-type MockPager struct {
-	data   map[uint64][]byte
-	closed bool
-}
+func newTestStore(t *testing.T) *Store {
+	t.Helper()
 
-func NewMockPager() *MockPager {
-	return &MockPager{
-		data:   make(map[uint64][]byte),
-		closed: false,
-	}
-}
-
-func (mp *MockPager) WriteAtOffset(offset uint64, data []byte) error {
-	if mp.closed {
-		return fmt.Errorf("pager is closed")
-	}
-	mp.data[offset] = make([]byte, len(data))
-	copy(mp.data[offset], data)
-	return nil
-}
-
-func (mp *MockPager) ReadAtOffset(offset uint64, size int) ([]byte, error) {
-	if mp.closed {
-		return nil, fmt.Errorf("pager is closed")
+	tempDir := t.TempDir()
+	store, err := NewStore(tempDir)
+	if err != nil {
+		t.Fatalf("failed to create temp data dir: %v", err)
 	}
 
-	var pageData []byte
-	var startOffset uint64
-	for off, data := range mp.data {
-		if offset >= off && offset < off+uint64(len(data)) {
-			pageData = data
-			startOffset = off
-			break
-		}
-	}
-
-	if pageData == nil {
-		return nil, fmt.Errorf("no data found at offset %d", offset)
-	}
-
-	localOffset := offset - startOffset
-	endOffset := localOffset + uint64(size)
-
-	if endOffset > uint64(len(pageData)) {
-		return nil, fmt.Errorf("read out of bounds")
-	}
-
-	return pageData[localOffset:endOffset], nil
-}
-
-func (mp *MockPager) Close() error {
-	mp.closed = true
-	return nil
-}
-
-type MockIndex struct {
-	index map[uint64]uint64
-}
-
-func NewMockIndex() *MockIndex {
-	return &MockIndex{
-		index: make(map[uint64]uint64),
-	}
-}
-
-func (mi *MockIndex) Insert(key uint64, value uint64) error {
-	mi.index[key] = value
-	return nil
-}
-
-func (mi *MockIndex) Search(key uint64) (uint64, error) {
-	if v, ok := mi.index[key]; ok {
-		return v, nil
-	}
-	return 0, index.ErrKeyNotFound
-}
-
-func (mi *MockIndex) Delete(key uint64) error {
-	delete(mi.index, key)
-	return nil
+	return store
 }
 
 func TestNewStore(t *testing.T) {
-	pager := NewMockPager()
-	index := NewMockIndex()
-	store := NewStore(pager, index)
+	store := newTestStore(t)
 	defer store.Close()
 
 	if store.offset != 0 {
@@ -102,9 +27,7 @@ func TestNewStore(t *testing.T) {
 }
 
 func TestPutGet(t *testing.T) {
-	pager := NewMockPager()
-	index := NewMockIndex()
-	store := NewStore(pager, index)
+	store := newTestStore(t)
 	defer store.Close()
 
 	key := "test"
@@ -158,9 +81,7 @@ func TestMultiplePutGets(t *testing.T) {
 		},
 	}
 
-	pager := NewMockPager()
-	index := NewMockIndex()
-	store := NewStore(pager, index)
+	store := newTestStore(t)
 	defer store.Close()
 
 	for _, p := range puts {
@@ -240,10 +161,12 @@ func TestRecovery(t *testing.T) {
 		},
 	}
 
-	pager := NewMockPager()
-	index := NewMockIndex()
-	store := NewStore(pager, index)
-	defer store.Close()
+	tempDir := t.TempDir()
+
+	store, err := NewStore(tempDir)
+	if err != nil {
+		t.Fatalf("failed to create a store from temp dir: %v", err)
+	}
 
 	for _, tt := range tests {
 		if err := store.Put(tt.key, tt.value); err != nil {
@@ -251,10 +174,12 @@ func TestRecovery(t *testing.T) {
 		}
 	}
 
-	defer store.Close()
+	store.Close()
 
-	newIndex := NewMockIndex()
-	newStore := NewStore(pager, newIndex)
+	newStore, err := NewStore(tempDir)
+	if err != nil {
+		t.Fatalf("failed to create a new store from temp dir: %v", err)
+	}
 	defer newStore.Close()
 
 	for _, tt := range tests {
@@ -300,9 +225,7 @@ func TestDelete(t *testing.T) {
 		},
 	}
 
-	pager := NewMockPager()
-	index := NewMockIndex()
-	store := NewStore(pager, index)
+	store := newTestStore(t)
 	defer store.Close()
 
 	for _, tt := range tests {
@@ -408,10 +331,11 @@ func TestRecoveryAfterDelete(t *testing.T) {
 		},
 	}
 
-	pager := NewMockPager()
-	index := NewMockIndex()
-	store := NewStore(pager, index)
-	defer store.Close()
+	tempDir := t.TempDir()
+	store, err := NewStore(tempDir)
+	if err != nil {
+		t.Fatalf("failed to create a store from temp dir: %v", err)
+	}
 
 	for _, p := range puts {
 		if err := store.Put(p.key, p.value); err != nil {
@@ -450,8 +374,12 @@ func TestRecoveryAfterDelete(t *testing.T) {
 		t.Fatalf("should be able to delete the key %s", deleteKey)
 	}
 
-	newIndex := NewMockIndex()
-	newStore := NewStore(pager, newIndex)
+	store.Close()
+
+	newStore, err := NewStore(tempDir)
+	if err != nil {
+		t.Fatalf("failed to create a new store from temp dir: %v", err)
+	}
 	defer newStore.Close()
 
 	for _, ev := range expected {

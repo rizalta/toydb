@@ -6,8 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"os"
+	"path/filepath"
 
 	"github.com/rizalta/toydb/index"
+	"github.com/rizalta/toydb/pager"
 )
 
 type Pager interface {
@@ -20,12 +23,14 @@ type Index interface {
 	Insert(key uint64, value uint64) error
 	Search(key uint64) (uint64, error)
 	Delete(key uint64) error
+	Close() error
 }
 
 type Store struct {
-	pager  Pager
-	index  Index
-	offset uint64
+	pager   Pager
+	index   Index
+	offset  uint64
+	dataDir string
 }
 
 type RecordType byte
@@ -41,19 +46,70 @@ type Record struct {
 	Value      []byte
 }
 
-func NewStore(pager Pager, index Index) *Store {
-	s := &Store{
-		pager:  pager,
-		index:  index,
-		offset: 0,
+const (
+	indexFile = "index.db"
+	dataFile  = "data.db"
+	lockFile  = "clean.lock"
+)
+
+func NewStore(dataDir string) (*Store, error) {
+	if err := os.MkdirAll(dataDir, 0755); err != nil {
+		return nil, err
 	}
 
-	s.Recovery()
+	dataPath := filepath.Join(dataDir, dataFile)
+	dataPager, err := pager.NewPager(dataPath)
+	if err != nil {
+		return nil, err
+	}
 
-	return s
+	indexPath := filepath.Join(dataDir, indexFile)
+	indexPager, err := pager.NewPager(indexPath)
+	if err != nil {
+		dataPager.Close()
+		return nil, err
+	}
+
+	index, err := index.NewIndex(indexPager)
+	if err != nil {
+		dataPager.Close()
+		indexPager.Close()
+		return nil, err
+	}
+
+	s := &Store{
+		pager:   dataPager,
+		index:   index,
+		offset:  0,
+		dataDir: dataDir,
+	}
+
+	lockFilePath := filepath.Join(dataDir, lockFile)
+	if _, err := os.Stat(lockFilePath); err == nil {
+		offset := uint64(0)
+		for {
+			r, err := s.readRecord(offset)
+			if err != nil {
+				break
+			}
+			offset += uint64(len(r.serialize()))
+		}
+		s.offset = offset
+		if err := os.Remove(lockFilePath); err != nil {
+			return nil, err
+		}
+	} else if os.IsNotExist(err) {
+		if err := s.recoverIndex(); err != nil {
+			return nil, err
+		}
+	} else {
+		return nil, err
+	}
+
+	return s, nil
 }
 
-func (s *Store) Recovery() {
+func (s *Store) recoverIndex() error {
 	offset := uint64(0)
 	for {
 		r, err := s.readRecord(offset)
@@ -61,10 +117,14 @@ func (s *Store) Recovery() {
 			break
 		}
 
-		s.index.Insert(hashKey(r.Key), offset)
+		err = s.index.Insert(hashKey(r.Key), offset)
+		if err != nil {
+			return err
+		}
 		offset += uint64(len(r.serialize()))
 	}
 	s.offset = offset
+	return nil
 }
 
 func (r *Record) serialize() []byte {
@@ -230,5 +290,16 @@ func (s *Store) Delete(key string) (bool, error) {
 }
 
 func (s *Store) Close() error {
-	return s.pager.Close()
+	if err := s.index.Close(); err != nil {
+		return err
+	}
+	if err := s.pager.Close(); err != nil {
+		return err
+	}
+	lockFilePath := filepath.Join(s.dataDir, lockFile)
+	file, err := os.Create(lockFilePath)
+	if err != nil {
+		return err
+	}
+	return file.Close()
 }
