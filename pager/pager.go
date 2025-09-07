@@ -2,6 +2,7 @@
 package pager
 
 import (
+	"encoding/binary"
 	"fmt"
 	"os"
 )
@@ -16,8 +17,9 @@ type Page struct {
 }
 
 type Pager struct {
-	file     *os.File
-	numPages uint32
+	file       *os.File
+	numPages   uint32
+	freeListID PageID
 }
 
 func NewPager(filename string) (*Pager, error) {
@@ -88,6 +90,21 @@ func (p *Pager) WritePage(page *Page) error {
 }
 
 func (p *Pager) NewPage() (*Page, error) {
+	if p.freeListID != 0 {
+		page, err := p.ReadPage(p.freeListID)
+		if err != nil {
+			return nil, fmt.Errorf("pager: failed to read free list page: %v", err)
+		}
+
+		nextID := PageID(binary.LittleEndian.Uint32(page.Data[:]))
+		p.freeListID = nextID
+
+		for i := range page.Data {
+			page.Data[i] = 0
+		}
+
+		return page, nil
+	}
 	pageID := PageID(p.numPages)
 	page := &Page{ID: pageID}
 
@@ -149,4 +166,28 @@ func (p *Pager) GetSize() (uint64, error) {
 		return 0, err
 	}
 	return uint64(stat.Size()), nil
+}
+
+func (p *Pager) GetFreeListID() PageID {
+	return p.freeListID
+}
+
+func (p *Pager) SetFreeListID(pageID PageID) {
+	p.freeListID = pageID
+}
+
+func (p *Pager) FreePage(pageID PageID) error {
+	page := &Page{
+		ID: pageID,
+	}
+
+	binary.LittleEndian.PutUint32(page.Data[:], uint32(p.freeListID))
+
+	if err := p.WritePage(page); err != nil {
+		return err
+	}
+
+	p.freeListID = pageID
+
+	return nil
 }

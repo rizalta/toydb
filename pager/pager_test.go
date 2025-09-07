@@ -214,3 +214,43 @@ func TestPagerClose(t *testing.T) {
 		t.Error("expected error when creating page after close, got nil")
 	}
 }
+
+func TestPagerFreeList(t *testing.T) {
+	dbPath := createTempDB(t)
+
+	pager, err := NewPager(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create pager: %v", err)
+	}
+
+	for range 3 {
+		_, err := pager.NewPage()
+		if err != nil {
+			t.Fatalf("failed to create new page: %v", err)
+		}
+	}
+
+	err = pager.FreePage(1)
+	if err != nil {
+		t.Fatalf("failed to free page 1: %v", err)
+	}
+	err = pager.FreePage(2)
+	if err != nil {
+		t.Fatalf("failed to free page 2: %v", err)
+	}
+
+	newPage, err := pager.NewPage()
+	if err != nil {
+		t.Fatalf("failed to create new page after free page: %v", err)
+	}
+	if newPage.ID != PageID(2) {
+		t.Errorf("expected page ID for new page after free page to be 2, got %d", newPage.ID)
+	}
+	newPage, err = pager.NewPage()
+	if err != nil {
+		t.Fatalf("failed to create new page after free page: %v", err)
+	}
+	if newPage.ID != PageID(1) {
+		t.Errorf("expected page ID for new page after free page to be 1, got %d", newPage.ID)
+	}
+}
