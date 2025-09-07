@@ -6,12 +6,16 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"log"
 	"os"
+	"sync"
+	"time"
 )
 
 const (
 	PageSize     = 4096
 	MaxCacheSize = 128
+	SyncPeriod   = 10 * time.Second
 )
 
 var ErrPagerClosed = errors.New("pager: operations on a closed pager")
@@ -29,7 +33,10 @@ type Pager struct {
 	freeListID PageID
 	cache      map[PageID]*list.Element
 	lruList    *list.List
+	mu         sync.Mutex
 	isClosed   bool
+	done       chan struct{}
+	wg         sync.WaitGroup
 }
 
 type cacheEntry struct {
@@ -50,13 +57,21 @@ func NewPager(filename string) (*Pager, error) {
 
 	numPages := uint32(stat.Size() / PageSize)
 
-	return &Pager{
+	p := &Pager{
 		file:       file,
 		numPages:   numPages,
 		cache:      make(map[PageID]*list.Element),
 		freeListID: 0,
 		lruList:    list.New(),
-	}, nil
+		mu:         sync.Mutex{},
+		isClosed:   false,
+		done:       make(chan struct{}),
+	}
+
+	p.wg.Add(1)
+	go p.startPeriodicSync()
+
+	return p, nil
 }
 
 func (p *Pager) readFromDisk(pageID PageID) (*Page, error) {
@@ -114,6 +129,9 @@ func (p *Pager) ReadPage(pageID PageID) (*Page, error) {
 		return nil, ErrPagerClosed
 	}
 
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	if elem, found := p.cache[pageID]; found {
 		p.lruList.MoveToFront(elem)
 		return elem.Value.(*cacheEntry).page, nil
@@ -145,6 +163,9 @@ func (p *Pager) WritePage(page *Page) error {
 	if p.isClosed {
 		return ErrPagerClosed
 	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
 	elem, found := p.cache[page.ID]
 	var entry *cacheEntry
@@ -298,25 +319,53 @@ func (p *Pager) Flush() error {
 		return ErrPagerClosed
 	}
 
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	for _, elem := range p.cache {
 		entry := elem.Value.(*cacheEntry)
 		if entry.isDirty {
 			if err := p.writeToDisk(entry.page); err != nil {
-				return err
+				log.Printf("ERROR: failed to write dirty page %d: %v", entry.page.ID, err)
+				continue
 			}
 			entry.isDirty = false
 		}
 	}
-	return nil
+
+	return p.file.Sync()
+}
+
+func (p *Pager) startPeriodicSync() {
+	defer p.wg.Done()
+
+	ticker := time.NewTicker(SyncPeriod)
+
+	for {
+		select {
+		case <-ticker.C:
+			if err := p.Flush(); err != nil {
+				log.Printf("pager: periodic sync failed: %v", err)
+			}
+		case <-p.done:
+			ticker.Stop()
+			return
+		}
+	}
 }
 
 func (p *Pager) Close() error {
+	if p.isClosed {
+		return nil
+	}
+
+	close(p.done)
+	p.wg.Wait()
+
 	if err := p.Flush(); err != nil {
 		return err
 	}
-	if err := p.file.Sync(); err != nil {
-		return fmt.Errorf("pager: failed to sync file on close: %w", err)
-	}
+
 	p.isClosed = true
 	return p.file.Close()
 }
