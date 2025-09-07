@@ -2,12 +2,19 @@
 package pager
 
 import (
+	"container/list"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"os"
 )
 
-const PageSize = 4096
+const (
+	PageSize     = 4096
+	MaxCacheSize = 128
+)
+
+var ErrPagerClosed = errors.New("pager: operations on a closed pager")
 
 type PageID uint32
 
@@ -20,6 +27,14 @@ type Pager struct {
 	file       *os.File
 	numPages   uint32
 	freeListID PageID
+	cache      map[PageID]*list.Element
+	lruList    *list.List
+	isClosed   bool
+}
+
+type cacheEntry struct {
+	page    *Page
+	isDirty bool
 }
 
 func NewPager(filename string) (*Pager, error) {
@@ -36,37 +51,28 @@ func NewPager(filename string) (*Pager, error) {
 	numPages := uint32(stat.Size() / PageSize)
 
 	return &Pager{
-		file:     file,
-		numPages: numPages,
+		file:       file,
+		numPages:   numPages,
+		cache:      make(map[PageID]*list.Element),
+		freeListID: 0,
+		lruList:    list.New(),
 	}, nil
 }
 
-func (p *Pager) Close() error {
-	return p.file.Close()
-}
-
-func (p *Pager) ReadPage(pageID PageID) (*Page, error) {
-	if uint32(pageID) >= p.numPages {
-		return nil, fmt.Errorf("pager: page %d does not exist", pageID)
-	}
-
+func (p *Pager) readFromDisk(pageID PageID) (*Page, error) {
 	page := &Page{ID: pageID}
-
 	offset := int64(pageID) * PageSize
+
 	_, err := p.file.Seek(offset, 0)
 	if err != nil {
 		return nil, fmt.Errorf("pager: failed to seek to page: %w", err)
 	}
 
 	_, err = p.file.Read(page.Data[:])
-	if err != nil {
-		return nil, fmt.Errorf("pager: failed to read page: %w", err)
-	}
-
-	return page, nil
+	return page, err
 }
 
-func (p *Pager) WritePage(page *Page) error {
+func (p *Pager) writeToDisk(page *Page) error {
 	offset := int64(page.ID) * PageSize
 	_, err := p.file.Seek(offset, 0)
 	if err != nil {
@@ -81,19 +87,97 @@ func (p *Pager) WritePage(page *Page) error {
 		return fmt.Errorf("pager: partial write: wrote %d bytes, expected %d bytes", n, PageSize)
 	}
 
-	err = p.file.Sync()
-	if err != nil {
-		return fmt.Errorf("pager: failed to sync page: %w", err)
+	return nil
+}
+
+func (p *Pager) evict() error {
+	elem := p.lruList.Back()
+	if elem == nil {
+		return nil
 	}
+
+	entry := elem.Value.(*cacheEntry)
+	if entry.isDirty {
+		if err := p.writeToDisk(entry.page); err != nil {
+			return err
+		}
+	}
+
+	p.lruList.Remove(elem)
+	delete(p.cache, entry.page.ID)
 
 	return nil
 }
 
+func (p *Pager) ReadPage(pageID PageID) (*Page, error) {
+	if p.isClosed {
+		return nil, ErrPagerClosed
+	}
+
+	if elem, found := p.cache[pageID]; found {
+		p.lruList.MoveToFront(elem)
+		return elem.Value.(*cacheEntry).page, nil
+	}
+
+	if uint32(pageID) >= p.numPages {
+		return nil, fmt.Errorf("pager: page %d does not exist", pageID)
+	}
+
+	page, err := p.readFromDisk(pageID)
+	if err != nil {
+		return nil, fmt.Errorf("pager: failed to read page: %w", err)
+	}
+
+	entry := &cacheEntry{page: page, isDirty: false}
+	elem := p.lruList.PushFront(entry)
+	p.cache[page.ID] = elem
+
+	if p.lruList.Len() > MaxCacheSize {
+		if err := p.evict(); err != nil {
+			return nil, err
+		}
+	}
+
+	return page, nil
+}
+
+func (p *Pager) WritePage(page *Page) error {
+	if p.isClosed {
+		return ErrPagerClosed
+	}
+
+	elem, found := p.cache[page.ID]
+	var entry *cacheEntry
+	if !found {
+		entry = &cacheEntry{
+			page:    page,
+			isDirty: true,
+		}
+		elem = p.lruList.PushFront(entry)
+		p.cache[page.ID] = elem
+	} else {
+		elem.Value.(*cacheEntry).page = page
+		p.lruList.MoveToFront(elem)
+	}
+	elem.Value.(*cacheEntry).isDirty = true
+
+	if p.lruList.Len() > MaxCacheSize {
+		if err := p.evict(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (p *Pager) NewPage() (*Page, error) {
+	if p.isClosed {
+		return nil, ErrPagerClosed
+	}
+
 	if p.freeListID != 0 {
 		page, err := p.ReadPage(p.freeListID)
 		if err != nil {
-			return nil, fmt.Errorf("pager: failed to read free list page: %v", err)
+			return nil, fmt.Errorf("pager: failed to read free list page: %w", err)
 		}
 
 		nextID := PageID(binary.LittleEndian.Uint32(page.Data[:]))
@@ -124,12 +208,12 @@ func (p *Pager) NewPage() (*Page, error) {
 func (p *Pager) WriteAtOffset(offset uint64, data []byte) error {
 	_, err := p.file.Seek(int64(offset), 0)
 	if err != nil {
-		return fmt.Errorf("pager: failed to seek to offset: %v", err)
+		return fmt.Errorf("pager: failed to seek to offset: %w", err)
 	}
 
 	n, err := p.file.Write(data)
 	if err != nil {
-		return fmt.Errorf("pager: failed to write at offset: %v", err)
+		return fmt.Errorf("pager: failed to write at offset: %w", err)
 	}
 	if n != len(data) {
 		return fmt.Errorf("pager: partial write: wrote %d bytes, expected %d bytes", n, len(data))
@@ -141,13 +225,13 @@ func (p *Pager) WriteAtOffset(offset uint64, data []byte) error {
 func (p *Pager) ReadAtOffset(offset uint64, size int) ([]byte, error) {
 	_, err := p.file.Seek(int64(offset), 0)
 	if err != nil {
-		return nil, fmt.Errorf("pager: failed to seek to offset: %v", err)
+		return nil, fmt.Errorf("pager: failed to seek to offset: %w", err)
 	}
 
 	data := make([]byte, size)
 	n, err := p.file.Read(data)
 	if err != nil {
-		return nil, fmt.Errorf("pager: failed to read at offset: %v", err)
+		return nil, fmt.Errorf("pager: failed to read at offset: %w", err)
 	}
 	if n != size {
 		return nil, fmt.Errorf("pager: partial read: read %d bytes, expected %d bytes", n, size)
@@ -157,10 +241,17 @@ func (p *Pager) ReadAtOffset(offset uint64, size int) ([]byte, error) {
 }
 
 func (p *Pager) GetNumPages() uint32 {
+	if p.isClosed {
+		return 0
+	}
 	return p.numPages
 }
 
 func (p *Pager) GetSize() (uint64, error) {
+	if p.isClosed {
+		return 0, ErrPagerClosed
+	}
+
 	stat, err := p.file.Stat()
 	if err != nil {
 		return 0, err
@@ -169,14 +260,24 @@ func (p *Pager) GetSize() (uint64, error) {
 }
 
 func (p *Pager) GetFreeListID() PageID {
+	if p.isClosed {
+		return 0
+	}
+
 	return p.freeListID
 }
 
 func (p *Pager) SetFreeListID(pageID PageID) {
-	p.freeListID = pageID
+	if !p.isClosed {
+		p.freeListID = pageID
+	}
 }
 
 func (p *Pager) FreePage(pageID PageID) error {
+	if p.isClosed {
+		return ErrPagerClosed
+	}
+
 	page := &Page{
 		ID: pageID,
 	}
@@ -190,4 +291,32 @@ func (p *Pager) FreePage(pageID PageID) error {
 	p.freeListID = pageID
 
 	return nil
+}
+
+func (p *Pager) Flush() error {
+	if p.isClosed {
+		return ErrPagerClosed
+	}
+
+	for _, elem := range p.cache {
+		entry := elem.Value.(*cacheEntry)
+		if entry.isDirty {
+			if err := p.writeToDisk(entry.page); err != nil {
+				return err
+			}
+			entry.isDirty = false
+		}
+	}
+	return nil
+}
+
+func (p *Pager) Close() error {
+	if err := p.Flush(); err != nil {
+		return err
+	}
+	if err := p.file.Sync(); err != nil {
+		return fmt.Errorf("pager: failed to sync file on close: %w", err)
+	}
+	p.isClosed = true
+	return p.file.Close()
 }

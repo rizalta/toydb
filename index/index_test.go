@@ -86,6 +86,8 @@ func TestNewIndexForExistingPager(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to write root page: %v", err)
 	}
+	p.Close()
+	p, _ = pager.NewPager(indexPath)
 	index, err := NewIndex(p)
 	if err != nil {
 		t.Fatalf("failed to initialize index: %v", err)
@@ -97,8 +99,8 @@ func TestNewIndexForExistingPager(t *testing.T) {
 	if index.root != 42 {
 		t.Fatalf("expected root page id to be 42, but got %d", index.root)
 	}
-	if p.GetNumPages() != 2 {
-		t.Fatalf("expected 2 pages in pager, got %d", p.GetNumPages())
+	if p.GetNumPages() != 43 {
+		t.Fatalf("expected 43 pages in pager, got %d", p.GetNumPages())
 	}
 }
 

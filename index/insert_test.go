@@ -209,85 +209,85 @@ func TestInsertAndSplit(t *testing.T) {
 	})
 }
 
-// func TestInternalNodeSplit(t *testing.T) {
-// 	index := newTestIndex(t)
-// 	defer index.Close()
-// 	if index == nil {
-// 		t.Fatalf("expected index, got nil")
-// 	}
-//
-// 	var keyCounter uint64 = 0
-// 	value := func() uint64 { return keyCounter + 1000 }
-//
-// 	t.Log("Phase1: Creating initial internal root")
-// 	for range MaxKeys + 1 {
-// 		err := index.Insert(keyCounter, value())
-// 		if err != nil {
-// 			t.Fatalf("phase1: failed to insert key %d, : %v", keyCounter, err)
-// 		}
-// 		keyCounter++
-// 	}
-//
-// 	t.Logf("Phase2: Filling internal root node with %d keys", MaxKeys)
-// 	for range MaxKeys - 1 {
-// 		numToFillAndSplit := (MaxKeys + 1) / 2
-// 		for range numToFillAndSplit {
-// 			err := index.Insert(keyCounter, value())
-// 			if err != nil {
-// 				t.Fatalf("phase2: failed to insert key %d, : %v", keyCounter, err)
-// 			}
-// 			keyCounter++
-// 		}
-// 	}
-// 	root, _, _ := index.readNode(index.root)
-// 	if len(root.keys) != MaxKeys {
-// 		t.Fatalf("phase2: expected root node to be filled with %d keys, got %d", MaxKeys, len(root.keys))
-// 	}
-//
-// 	t.Log("Phase3: fill the target leaf node")
-// 	numToFill := MaxKeys / 2
-// 	for range numToFill {
-// 		err := index.Insert(keyCounter, value())
-// 		if err != nil {
-// 			t.Fatalf("phase3: failed to insert key %d, : %v", keyCounter, err)
-// 		}
-// 		keyCounter++
-// 	}
-//
-// 	t.Log("Phase4: trigger the internal node split")
-// 	triggerKey := keyCounter
-// 	err := index.Insert(triggerKey, value())
-// 	if err != nil {
-// 		t.Fatalf("phase4: failed to insert trigger key %d: %v", triggerKey, err)
-// 	}
-//
-// 	t.Run("Verify_new_root", func(t *testing.T) {
-// 		newRoot, _, err := index.readNode(index.root)
-// 		if err != nil {
-// 			t.Fatalf("failed to read new root: %v", err)
-// 		}
-// 		if newRoot.nodeType != NodeTypeInternal {
-// 			t.Fatalf("expected new root to be internal, got %v", newRoot.nodeType)
-// 		}
-// 		if len(newRoot.keys) != 1 {
-// 			t.Fatalf("expected new root to have 1 key, got %d", len(newRoot.keys))
-// 		}
-// 		if len(newRoot.children) != 2 {
-// 			t.Errorf("expected new root to have 2 children, got %d", len(newRoot.children))
-// 		}
-// 	})
-//
-// 	t.Run("Verify_Tree_height_increased", func(t *testing.T) {
-// 		newRoot, _, err := index.readNode(index.root)
-// 		if err != nil {
-// 			t.Fatalf("failed to read new root: %v", err)
-// 		}
-// 		child, _, err := index.readNode(newRoot.children[0])
-// 		if err != nil {
-// 			t.Fatalf("failed to read child of new root: %v", err)
-// 		}
-// 		if child.nodeType != NodeTypeInternal {
-// 			t.Errorf("expected child of new root to be internal (tree height 3), but got %v", child.nodeType)
-// 		}
-// 	})
-// }
+func TestInternalNodeSplit(t *testing.T) {
+	index := newTestIndex(t)
+	defer index.Close()
+	if index == nil {
+		t.Fatalf("expected index, got nil")
+	}
+
+	var keyCounter uint64 = 0
+	value := func() uint64 { return keyCounter + 1000 }
+
+	t.Log("Phase1: Creating initial internal root")
+	for range MaxKeys + 1 {
+		err := index.Insert(keyCounter, value())
+		if err != nil {
+			t.Fatalf("phase1: failed to insert key %d, : %v", keyCounter, err)
+		}
+		keyCounter++
+	}
+
+	t.Logf("Phase2: Filling internal root node with %d keys", MaxKeys)
+	for range MaxKeys - 1 {
+		numToFillAndSplit := (MaxKeys + 1) / 2
+		for range numToFillAndSplit {
+			err := index.Insert(keyCounter, value())
+			if err != nil {
+				t.Fatalf("phase2: failed to insert key %d, : %v", keyCounter, err)
+			}
+			keyCounter++
+		}
+	}
+	root, _, _ := index.readNode(index.root)
+	if len(root.keys) != MaxKeys {
+		t.Fatalf("phase2: expected root node to be filled with %d keys, got %d", MaxKeys, len(root.keys))
+	}
+
+	t.Log("Phase3: fill the target leaf node")
+	numToFill := MaxKeys / 2
+	for range numToFill {
+		err := index.Insert(keyCounter, value())
+		if err != nil {
+			t.Fatalf("phase3: failed to insert key %d, : %v", keyCounter, err)
+		}
+		keyCounter++
+	}
+
+	t.Log("Phase4: trigger the internal node split")
+	triggerKey := keyCounter
+	err := index.Insert(triggerKey, value())
+	if err != nil {
+		t.Fatalf("phase4: failed to insert trigger key %d: %v", triggerKey, err)
+	}
+
+	t.Run("Verify_new_root", func(t *testing.T) {
+		newRoot, _, err := index.readNode(index.root)
+		if err != nil {
+			t.Fatalf("failed to read new root: %v", err)
+		}
+		if newRoot.nodeType != NodeTypeInternal {
+			t.Fatalf("expected new root to be internal, got %v", newRoot.nodeType)
+		}
+		if len(newRoot.keys) != 1 {
+			t.Fatalf("expected new root to have 1 key, got %d", len(newRoot.keys))
+		}
+		if len(newRoot.children) != 2 {
+			t.Errorf("expected new root to have 2 children, got %d", len(newRoot.children))
+		}
+	})
+
+	t.Run("Verify_Tree_height_increased", func(t *testing.T) {
+		newRoot, _, err := index.readNode(index.root)
+		if err != nil {
+			t.Fatalf("failed to read new root: %v", err)
+		}
+		child, _, err := index.readNode(newRoot.children[0])
+		if err != nil {
+			t.Fatalf("failed to read child of new root: %v", err)
+		}
+		if child.nodeType != NodeTypeInternal {
+			t.Errorf("expected child of new root to be internal (tree height 3), but got %v", child.nodeType)
+		}
+	})
+}
