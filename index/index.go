@@ -30,6 +30,9 @@ type Pager interface {
 	ReadPage(pageID pager.PageID) (*pager.Page, error)
 	WritePage(page *pager.Page) error
 	GetNumPages() uint32
+	FreePage(pageID pager.PageID) error
+	GetFreeListID() pager.PageID
+	SetFreeListID(pageID pager.PageID)
 	Close() error
 }
 
@@ -103,7 +106,7 @@ func NewIndex(p Pager) (*Index, error) {
 			pager: p,
 		}
 
-		if err := idx.updateRootInMeta(); err != nil {
+		if err := idx.syncMetaPage(); err != nil {
 			return nil, err
 		}
 
@@ -120,10 +123,12 @@ func NewIndex(p Pager) (*Index, error) {
 		return nil, err
 	}
 
-	rootPageID := binary.LittleEndian.Uint32(meta.Data[:])
+	rootPageID := pager.PageID(binary.LittleEndian.Uint32(meta.Data[:]))
+	freeListID := pager.PageID(binary.LittleEndian.Uint32(meta.Data[4:]))
+	p.SetFreeListID(freeListID)
 
 	return &Index{
-		root:  pager.PageID(rootPageID),
+		root:  rootPageID,
 		pager: p,
 	}, nil
 }
@@ -213,13 +218,14 @@ func (idx *Index) writeNode(page *pager.Page, n *node) error {
 	return idx.pager.WritePage(page)
 }
 
-func (idx *Index) updateRootInMeta() error {
+func (idx *Index) syncMetaPage() error {
 	meta, err := idx.pager.ReadPage(0)
 	if err != nil {
 		return err
 	}
 
 	binary.LittleEndian.PutUint32(meta.Data[:], uint32(idx.root))
+	binary.LittleEndian.PutUint32(meta.Data[4:], uint32(idx.pager.GetFreeListID()))
 
 	return idx.pager.WritePage(meta)
 }
@@ -256,5 +262,8 @@ func (idx *Index) Search(key uint64) (uint64, error) {
 }
 
 func (idx *Index) Close() error {
+	if err := idx.syncMetaPage(); err != nil {
+		return err
+	}
 	return idx.pager.Close()
 }

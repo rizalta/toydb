@@ -24,7 +24,7 @@ func (idx *Index) Insert(key uint64, value uint64) error {
 		}
 
 		idx.root = rootPage.ID
-		if err := idx.updateRootInMeta(); err != nil {
+		if err := idx.syncMetaPage(); err != nil {
 			return err
 		}
 	}

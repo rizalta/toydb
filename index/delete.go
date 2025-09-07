@@ -25,7 +25,7 @@ func (idx *Index) Delete(key uint64) error {
 		} else {
 			idx.root = 0
 		}
-		if err := idx.updateRootInMeta(); err != nil {
+		if err := idx.syncMetaPage(); err != nil {
 			return err
 		}
 	}
@@ -142,7 +142,13 @@ func (idx *Index) fixUnderflow(parentID, childID pager.PageID) error {
 		if err != nil {
 			return err
 		}
+		if err := idx.syncMetaPage(); err != nil {
+			return err
+		}
 		idx.merge(parentNode, leftNode, childNode, childIdx-1)
+		if err := idx.pager.FreePage(childID); err != nil {
+			return err
+		}
 		if err := idx.writeNode(leftPage, leftNode); err != nil {
 			return err
 		}
@@ -154,6 +160,12 @@ func (idx *Index) fixUnderflow(parentID, childID pager.PageID) error {
 			return err
 		}
 		idx.merge(parentNode, childNode, rightNode, childIdx)
+		if err := idx.pager.FreePage(rightID); err != nil {
+			return err
+		}
+		if err := idx.syncMetaPage(); err != nil {
+			return err
+		}
 		if err := idx.writeNode(parentPage, parentNode); err != nil {
 			return err
 		}
