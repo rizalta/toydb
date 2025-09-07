@@ -2,7 +2,6 @@ package index
 
 import (
 	"errors"
-	"fmt"
 	"math/rand"
 	"testing"
 )
@@ -34,8 +33,7 @@ func TestDeleteBasicScenarios(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := NewMockPager()
-			index, _ := NewIndex(p)
+			index := newTestIndex(t)
 			defer index.Close()
 
 			for key, value := range m {
@@ -71,8 +69,7 @@ func TestDeleteBasicScenarios(t *testing.T) {
 }
 
 func TestDeleteInvalidKey(t *testing.T) {
-	p := NewMockPager()
-	index, _ := NewIndex(p)
+	index := newTestIndex(t)
 	defer index.Close()
 
 	m := map[uint64]uint64{10: 100, 20: 200, 30: 300, 40: 400}
@@ -106,8 +103,7 @@ func TestDeleteInvalidKey(t *testing.T) {
 }
 
 func TestDeleteEmptyIndex(t *testing.T) {
-	p := NewMockPager()
-	index, _ := NewIndex(p)
+	index := newTestIndex(t)
 	defer index.Close()
 
 	err := index.Delete(10)
@@ -117,8 +113,7 @@ func TestDeleteEmptyIndex(t *testing.T) {
 }
 
 func TestDeleteKeyTwice(t *testing.T) {
-	p := NewMockPager()
-	index, _ := NewIndex(p)
+	index := newTestIndex(t)
 	defer index.Close()
 
 	m := map[uint64]uint64{10: 100, 20: 200, 30: 300, 40: 400}
@@ -156,8 +151,7 @@ func TestDeleteKeyTwice(t *testing.T) {
 }
 
 func TestDeleteOnlyKey(t *testing.T) {
-	p := NewMockPager()
-	index, _ := NewIndex(p)
+	index := newTestIndex(t)
 	defer index.Close()
 
 	key := uint64(10)
@@ -179,8 +173,7 @@ func TestDeleteOnlyKey(t *testing.T) {
 }
 
 func TestDeleteUnderflowBorrow(t *testing.T) {
-	p := NewMockPager()
-	index, _ := NewIndex(p)
+	index := newTestIndex(t)
 
 	m := make(map[uint64]uint64)
 	for i := range MaxKeys + 1 {
@@ -229,8 +222,7 @@ func TestDeleteUnderflowBorrow(t *testing.T) {
 }
 
 func TestDeleteUnderflowMerge(t *testing.T) {
-	p := NewMockPager()
-	index, _ := NewIndex(p)
+	index := newTestIndex(t)
 
 	m := make(map[uint64]uint64)
 	for i := range MaxKeys + 1 {
@@ -286,7 +278,7 @@ func TestDeleteUnderflowMerge(t *testing.T) {
 }
 
 func TestDeleteStress(t *testing.T) {
-	index, _ := NewIndex(NewMockPager())
+	index := newTestIndex(t)
 
 	inserts := make(map[uint64]uint64)
 	deletes := make(map[uint64]struct{})
@@ -312,10 +304,6 @@ func TestDeleteStress(t *testing.T) {
 			delete(deletes, key)
 
 		} else {
-			if key == 1907 {
-				_, err := index.Search(key)
-				fmt.Println("err: ", err)
-			}
 			err := index.Delete(key)
 			if _, exist := inserts[key]; exist {
 				if err != nil {
