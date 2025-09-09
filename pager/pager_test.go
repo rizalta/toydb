@@ -8,7 +8,6 @@ import (
 	"testing"
 )
 
-// Helper to create temp db for testing
 func createTempDB(t *testing.T) string {
 	t.Helper()
 	tempDir := t.TempDir()
@@ -17,7 +16,6 @@ func createTempDB(t *testing.T) string {
 	return dbPath
 }
 
-// Test: New pager
 func TestNewPager(t *testing.T) {
 	dbPath := createTempDB(t)
 
@@ -32,7 +30,6 @@ func TestNewPager(t *testing.T) {
 	}
 }
 
-// Test: Pager with existing file
 func TestNewPagerExistingFile(t *testing.T) {
 	dbPath := createTempDB(t)
 
@@ -59,7 +56,6 @@ func TestNewPagerExistingFile(t *testing.T) {
 	}
 }
 
-// Test: NewPage
 func TestNewPage(t *testing.T) {
 	dbPath := createTempDB(t)
 
