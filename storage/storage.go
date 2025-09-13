@@ -20,7 +20,7 @@ type Pager interface {
 }
 
 type Index interface {
-	Insert(key uint64, value uint64) error
+	Insert(key uint64, value uint64, insertMode index.InsertMode) error
 	Search(key uint64) (uint64, error)
 	Delete(key uint64) error
 	Close() error
@@ -117,7 +117,7 @@ func (s *Store) recoverIndex() error {
 			break
 		}
 
-		err = s.index.Insert(hashKey(r.Key), offset)
+		err = s.index.Insert(hashKey(r.Key), offset, index.Upsert)
 		if err != nil {
 			return err
 		}
@@ -197,8 +197,35 @@ func (s *Store) Put(key []byte, value []byte) error {
 		return fmt.Errorf("storage: failed to write record: %v", err)
 	}
 
-	err = s.index.Insert(hashKey(key), s.offset)
+	err = s.index.Insert(hashKey(key), s.offset, index.Upsert)
 	if err != nil {
+		return fmt.Errorf("storage: failed to index key: %v", err)
+	}
+
+	s.offset += uint64(len(serialized))
+
+	return nil
+}
+
+func (s *Store) Add(key []byte, value []byte) error {
+	record := &Record{
+		RecordType: RecordTypeInsert,
+		Key:        key,
+		Value:      value,
+	}
+
+	serialized := record.serialize()
+
+	err := s.pager.WriteAtOffset(s.offset, serialized)
+	if err != nil {
+		return fmt.Errorf("storage: failed to write record: %v", err)
+	}
+
+	err = s.index.Insert(hashKey(key), s.offset, index.InsertOnly)
+	if err != nil {
+		if errors.Is(err, index.ErrKeyAlreadyExists) {
+			return err
+		}
 		return fmt.Errorf("storage: failed to index key: %v", err)
 	}
 
@@ -280,7 +307,7 @@ func (s *Store) Delete(key []byte) (bool, error) {
 		return false, fmt.Errorf("storage: failed to write tombstone: %v", err)
 	}
 
-	err = s.index.Insert(hashKey(key), s.offset)
+	err = s.index.Insert(hashKey(key), s.offset, index.Upsert)
 	if err != nil {
 		return false, fmt.Errorf("storage: failed to index key: %v", err)
 	}

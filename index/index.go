@@ -23,6 +23,7 @@ const (
 var (
 	ErrKeyNotFound      = errors.New("index: key not found")
 	ErrChecksumMismatch = errors.New("index: page checksum mismatch")
+	ErrKeyAlreadyExists = errors.New("index: key already exists")
 )
 
 type Pager interface {

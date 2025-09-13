@@ -37,7 +37,7 @@ func TestDeleteBasicScenarios(t *testing.T) {
 			defer index.Close()
 
 			for key, value := range m {
-				if err := index.Insert(key, value); err != nil {
+				if err := index.Insert(key, value, Upsert); err != nil {
 					t.Fatalf("failed to insert key %d into index: %v", key, err)
 				}
 			}
@@ -75,7 +75,7 @@ func TestDeleteInvalidKey(t *testing.T) {
 	m := map[uint64]uint64{10: 100, 20: 200, 30: 300, 40: 400}
 
 	for key, value := range m {
-		if err := index.Insert(key, value); err != nil {
+		if err := index.Insert(key, value, Upsert); err != nil {
 			t.Fatalf("failed to insert key %d into index: %v", key, err)
 		}
 	}
@@ -119,7 +119,7 @@ func TestDeleteKeyTwice(t *testing.T) {
 	m := map[uint64]uint64{10: 100, 20: 200, 30: 300, 40: 400}
 
 	for key, value := range m {
-		if err := index.Insert(key, value); err != nil {
+		if err := index.Insert(key, value, Upsert); err != nil {
 			t.Fatalf("failed to insert key %d into index: %v", key, err)
 		}
 	}
@@ -156,7 +156,7 @@ func TestDeleteOnlyKey(t *testing.T) {
 
 	key := uint64(10)
 	value := uint64(100)
-	err := index.Insert(key, value)
+	err := index.Insert(key, value, Upsert)
 	if err != nil {
 		t.Fatalf("failed to insert key %d into index: %v", key, err)
 	}
@@ -181,7 +181,7 @@ func TestDeleteUnderflowBorrow(t *testing.T) {
 	}
 
 	for key, value := range m {
-		err := index.Insert(key, value)
+		err := index.Insert(key, value, Upsert)
 		if err != nil {
 			t.Fatalf("failed to insert for key %d: %v", key, err)
 		}
@@ -230,7 +230,7 @@ func TestDeleteUnderflowMerge(t *testing.T) {
 	}
 
 	for key, value := range m {
-		err := index.Insert(key, value)
+		err := index.Insert(key, value, Upsert)
 		if err != nil {
 			t.Fatalf("failed to insert for key %d: %v", key, err)
 		}
@@ -296,7 +296,7 @@ func TestDeleteStress(t *testing.T) {
 		value := uint64(r.Intn(maxKey))
 
 		if isInsert() {
-			err := index.Insert(key, value)
+			err := index.Insert(key, value, Upsert)
 			if err != nil {
 				t.Fatalf("failed to insert key %d: %v", key, err)
 			}

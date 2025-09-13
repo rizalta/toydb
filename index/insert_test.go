@@ -13,7 +13,7 @@ func TestInsertSimple(t *testing.T) {
 	}
 
 	t.Run("Insert_one_key_value", func(t *testing.T) {
-		err := index.Insert(10, 100)
+		err := index.Insert(10, 100, Upsert)
 		if err != nil {
 			t.Fatalf("failed to insert (10, 100) into index")
 		}
@@ -27,7 +27,7 @@ func TestInsertSimple(t *testing.T) {
 	})
 
 	t.Run("Insert_second_key_value", func(t *testing.T) {
-		err := index.Insert(5, 50)
+		err := index.Insert(5, 50, Upsert)
 		if err != nil {
 			t.Fatalf("failed to insert (5, 50) into index")
 		}
@@ -63,11 +63,11 @@ func TestInsertAndUpdate(t *testing.T) {
 		t.Fatalf("expected index, got nil")
 	}
 
-	err := index.Insert(10, 100)
+	err := index.Insert(10, 100, Upsert)
 	if err != nil {
 		t.Fatalf("failed to insert (10, 100) into index")
 	}
-	err = index.Insert(10, 999)
+	err = index.Insert(10, 999, Upsert)
 	if err != nil {
 		t.Fatalf("failed to insert second value 999 for key 10")
 	}
@@ -91,7 +91,7 @@ func TestInsertAndSplit(t *testing.T) {
 	for i := range MaxKeys {
 		key := uint64(i)
 		value := uint64(1000 + i)
-		err := index.Insert(key, value)
+		err := index.Insert(key, value, Upsert)
 		if err != nil {
 			t.Fatalf("failed to insert (%d, %d) into index: %v", key, value, err)
 		}
@@ -106,7 +106,7 @@ func TestInsertAndSplit(t *testing.T) {
 	splitKey := uint64(MaxKeys)
 	splitValue := uint64(MaxKeys + 1000)
 
-	err = index.Insert(splitKey, splitValue)
+	err = index.Insert(splitKey, splitValue, Upsert)
 	if err != nil {
 		t.Fatalf("failed to insert (%d, %d) into index which should trigger split: %v", splitKey, splitValue, err)
 	}
@@ -221,7 +221,7 @@ func TestInternalNodeSplit(t *testing.T) {
 
 	t.Log("Phase1: Creating initial internal root")
 	for range MaxKeys + 1 {
-		err := index.Insert(keyCounter, value())
+		err := index.Insert(keyCounter, value(), Upsert)
 		if err != nil {
 			t.Fatalf("phase1: failed to insert key %d, : %v", keyCounter, err)
 		}
@@ -232,7 +232,7 @@ func TestInternalNodeSplit(t *testing.T) {
 	for range MaxKeys - 1 {
 		numToFillAndSplit := (MaxKeys + 1) / 2
 		for range numToFillAndSplit {
-			err := index.Insert(keyCounter, value())
+			err := index.Insert(keyCounter, value(), Upsert)
 			if err != nil {
 				t.Fatalf("phase2: failed to insert key %d, : %v", keyCounter, err)
 			}
@@ -247,7 +247,7 @@ func TestInternalNodeSplit(t *testing.T) {
 	t.Log("Phase3: fill the target leaf node")
 	numToFill := MaxKeys / 2
 	for range numToFill {
-		err := index.Insert(keyCounter, value())
+		err := index.Insert(keyCounter, value(), Upsert)
 		if err != nil {
 			t.Fatalf("phase3: failed to insert key %d, : %v", keyCounter, err)
 		}
@@ -256,7 +256,7 @@ func TestInternalNodeSplit(t *testing.T) {
 
 	t.Log("Phase4: trigger the internal node split")
 	triggerKey := keyCounter
-	err := index.Insert(triggerKey, value())
+	err := index.Insert(triggerKey, value(), Upsert)
 	if err != nil {
 		t.Fatalf("phase4: failed to insert trigger key %d: %v", triggerKey, err)
 	}

@@ -6,11 +6,19 @@ import (
 	"github.com/rizalta/toydb/pager"
 )
 
-func (idx *Index) Insert(key uint64, value uint64) error {
-	promotedKey, newSiblingID, err := idx.insert(idx.root, key, value)
+type InsertMode uint8
+
+const (
+	Upsert InsertMode = iota
+	InsertOnly
+)
+
+func (idx *Index) Insert(key uint64, value uint64, inserMode InsertMode) error {
+	promotedKey, newSiblingID, err := idx.insert(idx.root, key, value, inserMode)
 	if err != nil {
 		return err
 	}
+
 	if newSiblingID != 0 {
 		newRoot := newInternalNode()
 		rootPage, err := idx.pager.NewPage()
@@ -28,19 +36,25 @@ func (idx *Index) Insert(key uint64, value uint64) error {
 			return err
 		}
 	}
+
 	return nil
 }
 
-func (idx *Index) insert(pageID pager.PageID, key, value uint64) (uint64, pager.PageID, error) {
+func (idx *Index) insert(pageID pager.PageID, key, value uint64, inserMode InsertMode) (uint64, pager.PageID, error) {
 	n, page, err := idx.readNode(pageID)
 	if err != nil {
 		return 0, 0, err
 	}
+
 	if n.nodeType == NodeTypeLeaf {
 		i := sort.Search(len(n.keys), func(j int) bool {
 			return n.keys[j] >= key
 		})
 		if i < len(n.keys) && n.keys[i] == key {
+			if inserMode == InsertOnly {
+				return 0, 0, ErrKeyAlreadyExists
+			}
+
 			n.values[i] = value
 			err := idx.writeNode(page, n)
 			return 0, 0, err
@@ -67,10 +81,11 @@ func (idx *Index) insert(pageID pager.PageID, key, value uint64) (uint64, pager.
 		return n.keys[j] > key
 	})
 
-	promotedKey, newSiblingID, err := idx.insert(n.children[i], key, value)
+	promotedKey, newSiblingID, err := idx.insert(n.children[i], key, value, inserMode)
 	if err != nil {
 		return 0, 0, err
 	}
+
 	if newSiblingID != 0 {
 		n.keys = append(n.keys, 0)
 		n.children = append(n.children, 0)
@@ -98,6 +113,7 @@ func (idx *Index) splitNode(page *pager.Page, n *node) (uint64, pager.PageID, er
 	if err != nil {
 		return 0, 0, err
 	}
+
 	var siblingNode *node
 	mid := len(n.keys) / 2
 
