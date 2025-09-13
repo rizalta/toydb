@@ -30,7 +30,7 @@ func TestPutGet(t *testing.T) {
 	store := newTestStore(t)
 	defer store.Close()
 
-	key := "test"
+	key := []byte("test")
 	value := []byte("value")
 
 	err := store.Put(key, value)
@@ -38,7 +38,7 @@ func TestPutGet(t *testing.T) {
 		t.Fatalf("Put for key %s and value %s should not get any error, got %v", key, value, err)
 	}
 
-	val, found, err := store.Get("test")
+	val, found, err := store.Get(key)
 	if err != nil {
 		t.Fatalf("Get for key %s should not get any error, got %v", key, err)
 	}
@@ -52,31 +52,31 @@ func TestPutGet(t *testing.T) {
 
 func TestMultiplePutGets(t *testing.T) {
 	puts := []struct {
-		key   string
+		key   []byte
 		value []byte
 	}{
 		{
-			key:   "key1",
+			key:   []byte("key1"),
 			value: []byte("value1"),
 		},
 		{
-			key:   "key2",
+			key:   []byte("key2"),
 			value: []byte("value2"),
 		},
 		{
-			key:   "key3",
+			key:   []byte("key3"),
 			value: []byte("value3"),
 		},
 		{
-			key:   "key4",
+			key:   []byte("key4"),
 			value: []byte("value4"),
 		},
 		{
-			key:   "key5",
+			key:   []byte("key5"),
 			value: []byte("value5"),
 		},
 		{
-			key:   "key2",
+			key:   []byte("key2"),
 			value: []byte("new_value"),
 		},
 	}
@@ -85,7 +85,7 @@ func TestMultiplePutGets(t *testing.T) {
 	defer store.Close()
 
 	for _, p := range puts {
-		t.Run("Put_"+p.key, func(t *testing.T) {
+		t.Run("Put_"+string(p.key), func(t *testing.T) {
 			if err := store.Put(p.key, p.value); err != nil {
 				t.Fatalf("failed to put (%s, %s) in store", p.key, p.value)
 			}
@@ -93,33 +93,33 @@ func TestMultiplePutGets(t *testing.T) {
 	}
 
 	expected := []struct {
-		key   string
+		key   []byte
 		value []byte
 	}{
 		{
-			key:   "key1",
+			key:   []byte("key1"),
 			value: []byte("value1"),
 		},
 		{
-			key:   "key2",
+			key:   []byte("key2"),
 			value: []byte("new_value"),
 		},
 		{
-			key:   "key3",
+			key:   []byte("key3"),
 			value: []byte("value3"),
 		},
 		{
-			key:   "key4",
+			key:   []byte("key4"),
 			value: []byte("value4"),
 		},
 		{
-			key:   "key5",
+			key:   []byte("key5"),
 			value: []byte("value5"),
 		},
 	}
 
 	for _, ev := range expected {
-		t.Run("Get_"+ev.key, func(t *testing.T) {
+		t.Run("Get_"+string(ev.key), func(t *testing.T) {
 			val, found, err := store.Get(ev.key)
 			if err != nil {
 				t.Fatalf("expected value for key %s but not found", ev.key)
@@ -136,27 +136,27 @@ func TestMultiplePutGets(t *testing.T) {
 
 func TestRecovery(t *testing.T) {
 	tests := []struct {
-		key   string
+		key   []byte
 		value []byte
 	}{
 		{
-			key:   "key1",
+			key:   []byte("key1"),
 			value: []byte("value1"),
 		},
 		{
-			key:   "key2",
+			key:   []byte("key2"),
 			value: []byte("value2"),
 		},
 		{
-			key:   "key3",
+			key:   []byte("key3"),
 			value: []byte("value3"),
 		},
 		{
-			key:   "key4",
+			key:   []byte("key4"),
 			value: []byte("value4"),
 		},
 		{
-			key:   "key5",
+			key:   []byte("key5"),
 			value: []byte("value5"),
 		},
 	}
@@ -183,7 +183,7 @@ func TestRecovery(t *testing.T) {
 	defer newStore.Close()
 
 	for _, tt := range tests {
-		t.Run("Recovered_Get_"+tt.key, func(t *testing.T) {
+		t.Run("Recovered_Get_"+string(tt.key), func(t *testing.T) {
 			val, found, err := newStore.Get(tt.key)
 			if err != nil {
 				t.Fatalf("expected value for key %s but not found: %v", tt.key, err)
@@ -200,27 +200,27 @@ func TestRecovery(t *testing.T) {
 
 func TestDelete(t *testing.T) {
 	tests := []struct {
-		key   string
+		key   []byte
 		value []byte
 	}{
 		{
-			key:   "key1",
+			key:   []byte("key1"),
 			value: []byte("value1"),
 		},
 		{
-			key:   "key2",
+			key:   []byte("key2"),
 			value: []byte("value2"),
 		},
 		{
-			key:   "key3",
+			key:   []byte("key3"),
 			value: []byte("value3"),
 		},
 		{
-			key:   "key4",
+			key:   []byte("key4"),
 			value: []byte("value4"),
 		},
 		{
-			key:   "key5",
+			key:   []byte("key5"),
 			value: []byte("value5"),
 		},
 	}
@@ -234,7 +234,7 @@ func TestDelete(t *testing.T) {
 		}
 	}
 
-	deleteKey := "key3"
+	deleteKey := []byte("key3")
 	success, err := store.Delete(deleteKey)
 	if err != nil {
 		t.Fatalf("failed to delete key %s: %v", deleteKey, err)
@@ -244,29 +244,29 @@ func TestDelete(t *testing.T) {
 	}
 
 	expected := []struct {
-		key   string
+		key   []byte
 		value []byte
 	}{
 		{
-			key:   "key1",
+			key:   []byte("key1"),
 			value: []byte("value1"),
 		},
 		{
-			key:   "key2",
+			key:   []byte("key2"),
 			value: []byte("value2"),
 		},
 		{
-			key:   "key4",
+			key:   []byte("key4"),
 			value: []byte("value4"),
 		},
 		{
-			key:   "key5",
+			key:   []byte("key5"),
 			value: []byte("value5"),
 		},
 	}
 
 	for _, ev := range expected {
-		t.Run("Get_after_delete"+ev.key, func(t *testing.T) {
+		t.Run("Get_after_delete"+string(ev.key), func(t *testing.T) {
 			val, found, err := store.Get(ev.key)
 			if err != nil {
 				t.Fatalf("expected value for key %s but not found", ev.key)
@@ -280,7 +280,7 @@ func TestDelete(t *testing.T) {
 		})
 	}
 
-	t.Run("Get_afrer_delete_"+deleteKey, func(t *testing.T) {
+	t.Run("Get_afrer_delete_"+string(deleteKey), func(t *testing.T) {
 		val, found, err := store.Get(deleteKey)
 		if err != nil {
 			t.Fatalf("expected nil when if key not found")
@@ -306,27 +306,27 @@ func TestDelete(t *testing.T) {
 
 func TestRecoveryAfterDelete(t *testing.T) {
 	puts := []struct {
-		key   string
+		key   []byte
 		value []byte
 	}{
 		{
-			key:   "key1",
+			key:   []byte("key1"),
 			value: []byte("value1"),
 		},
 		{
-			key:   "key2",
+			key:   []byte("key2"),
 			value: []byte("value2"),
 		},
 		{
-			key:   "key3",
+			key:   []byte("key3"),
 			value: []byte("value3"),
 		},
 		{
-			key:   "key4",
+			key:   []byte("key4"),
 			value: []byte("value4"),
 		},
 		{
-			key:   "key5",
+			key:   []byte("key5"),
 			value: []byte("value5"),
 		},
 	}
@@ -344,28 +344,28 @@ func TestRecoveryAfterDelete(t *testing.T) {
 	}
 
 	expected := []struct {
-		key   string
+		key   []byte
 		value []byte
 	}{
 		{
-			key:   "key1",
+			key:   []byte("key1"),
 			value: []byte("value1"),
 		},
 		{
-			key:   "key2",
+			key:   []byte("key2"),
 			value: []byte("value2"),
 		},
 		{
-			key:   "key4",
+			key:   []byte("key4"),
 			value: []byte("value4"),
 		},
 		{
-			key:   "key5",
+			key:   []byte("key5"),
 			value: []byte("value5"),
 		},
 	}
 
-	deleteKey := "key3"
+	deleteKey := []byte("key3")
 	success, err := store.Delete(deleteKey)
 	if err != nil {
 		t.Fatalf("failed to delete key %s: %v", deleteKey, err)
@@ -383,7 +383,7 @@ func TestRecoveryAfterDelete(t *testing.T) {
 	defer newStore.Close()
 
 	for _, ev := range expected {
-		t.Run("Get_after_delete_recovery"+ev.key, func(t *testing.T) {
+		t.Run("Get_after_delete_recovery"+string(ev.key), func(t *testing.T) {
 			val, found, err := newStore.Get(ev.key)
 			if err != nil {
 				t.Fatalf("expected value for key %s but not found", ev.key)
@@ -397,7 +397,7 @@ func TestRecoveryAfterDelete(t *testing.T) {
 		})
 	}
 
-	t.Run("Get_afrer_delete_recovery"+deleteKey, func(t *testing.T) {
+	t.Run("Get_afrer_delete_recovery"+string(deleteKey), func(t *testing.T) {
 		val, found, err := newStore.Get(deleteKey)
 		if err != nil {
 			t.Fatalf("expected nil when if key not found")

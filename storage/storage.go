@@ -42,7 +42,7 @@ const (
 
 type Record struct {
 	RecordType RecordType
-	Key        string
+	Key        []byte
 	Value      []byte
 }
 
@@ -53,7 +53,7 @@ const (
 )
 
 func NewStore(dataDir string) (*Store, error) {
-	if err := os.MkdirAll(dataDir, 0755); err != nil {
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return nil, err
 	}
 
@@ -162,7 +162,7 @@ func deserialize(data []byte) (*Record, error) {
 		return nil, fmt.Errorf("storage: record data truncated")
 	}
 
-	key := string(data[9 : 9+keyLen])
+	key := data[9 : 9+keyLen]
 
 	var value []byte
 	if recordType == RecordTypeInsert && valuelen > 0 {
@@ -177,13 +177,13 @@ func deserialize(data []byte) (*Record, error) {
 	}, nil
 }
 
-func hashKey(key string) uint64 {
+func hashKey(key []byte) uint64 {
 	h := fnv.New64a()
-	h.Write([]byte(key))
+	h.Write(key)
 	return h.Sum64()
 }
 
-func (s *Store) Put(key string, value []byte) error {
+func (s *Store) Put(key []byte, value []byte) error {
 	record := &Record{
 		RecordType: RecordTypeInsert,
 		Key:        key,
@@ -229,7 +229,7 @@ func (s *Store) readRecord(offset uint64) (*Record, error) {
 	return deserialize(data)
 }
 
-func (s *Store) Get(key string) ([]byte, bool, error) {
+func (s *Store) Get(key []byte) ([]byte, bool, error) {
 	offset, err := s.index.Search(hashKey(key))
 	if err != nil {
 		if errors.Is(err, index.ErrKeyNotFound) {
@@ -250,7 +250,7 @@ func (s *Store) Get(key string) ([]byte, bool, error) {
 	return record.Value, true, nil
 }
 
-func (s *Store) Delete(key string) (bool, error) {
+func (s *Store) Delete(key []byte) (bool, error) {
 	offset, err := s.index.Search(hashKey(key))
 	if err != nil {
 		if errors.Is(err, index.ErrKeyNotFound) {

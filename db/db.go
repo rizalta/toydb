@@ -33,8 +33,8 @@ func NewDatabase(dirPath string) (*Database, error) {
 	return db, nil
 }
 
-func createKey(tableID uint32, primaryKey tuple.Value) string {
-	return fmt.Sprintf("%d:%v", tableID, primaryKey)
+func createKey(tableID uint32, primaryKey tuple.Value) []byte {
+	return fmt.Appendf(nil, "%d:%v", tableID, primaryKey)
 }
 
 func (db *Database) Insert(tableName string, row tuple.Tuple) error {

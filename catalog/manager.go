@@ -14,11 +14,11 @@ var (
 	ErrPrimaryKeyNotNull   = errors.New("catalog: primary key should be not null")
 )
 
-const metaKey = "catalog:__schema__"
+var metaKey = []byte("catalog:__schema__")
 
 type Store interface {
-	Get(key string) ([]byte, bool, error)
-	Put(key string, value []byte) error
+	Get(key []byte) ([]byte, bool, error)
+	Put(key []byte, value []byte) error
 	Close() error
 }
 
@@ -62,7 +62,7 @@ func (m *Manager) updateNextID() error {
 }
 
 func (m *Manager) CreateTable(name string, columns []Column) (*Schema, error) {
-	schemaKey := "table:" + name
+	schemaKey := []byte("table:" + name)
 
 	primaryKeyCols := slices.Collect(func(yield func(i int) bool) {
 		for i, c := range columns {
@@ -116,7 +116,7 @@ func (m *Manager) CreateTable(name string, columns []Column) (*Schema, error) {
 }
 
 func (m *Manager) GetTable(name string) (*Schema, error) {
-	schemaKey := "table:" + name
+	schemaKey := []byte("table:" + name)
 
 	schemaBytes, found, err := m.store.Get(schemaKey)
 	if err != nil {
