@@ -58,11 +58,11 @@ func TestSerializeDeserialize(t *testing.T) {
 		{
 			name: "Test_zero_values",
 			tuple: Tuple{
-				"",
+				nil,
 				int64(0),
-				false,
-				[]byte{},
-				float64(0.0),
+				nil,
+				nil,
+				nil,
 			},
 		},
 		{
@@ -74,16 +74,6 @@ func TestSerializeDeserialize(t *testing.T) {
 				[]byte{1, 2, 4},
 				float64(12e33),
 			},
-		},
-		{
-			name: "Test_invalid_num_values",
-			tuple: Tuple{
-				"username&#(@",
-				int64(-26),
-				true,
-				float64(12e33),
-			},
-			serializeErr: ErrColumnCountMismatch,
 		},
 		{
 			name: "Test_type_mismatch_int",

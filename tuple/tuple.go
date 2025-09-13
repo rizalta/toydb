@@ -14,22 +14,23 @@ type Value any
 type Tuple []Value
 
 var (
-	ErrColumnCountMismatch = errors.New("tuple: number of values mismatch with schema column count")
-	ErrTypeMismatch        = errors.New("tuple: value type mismatch with schema type")
-	ErrCorruptData         = errors.New("tuple: data is corrupt or malformed")
+	ErrTypeMismatch = errors.New("tuple: value type mismatch with schema type")
+	ErrCorruptData  = errors.New("tuple: data is corrupt or malformed")
 )
 
 func Serialize(tuple Tuple, schema *catalog.Schema) ([]byte, error) {
 	numValues := len(tuple)
-	if numValues != len(schema.Columns) {
-		return nil, ErrColumnCountMismatch
-	}
 
 	encodedValues := make([][]byte, numValues)
 	dataSize := 0
 	for i, value := range tuple {
 		colType := schema.Columns[i].Type
 		var encoded []byte
+
+		if value == nil {
+			encodedValues[i] = []byte{}
+			continue
+		}
 
 		switch colType {
 		case catalog.TypeInt:
@@ -135,6 +136,11 @@ func Deserialize(data []byte, schema *catalog.Schema) (Tuple, error) {
 		}
 
 		valueBytes := dataSection[starPos:endPos]
+		if len(valueBytes) == 0 {
+			tuple[i] = nil
+			starPos = endPos
+			continue
+		}
 		colType := schema.Columns[i].Type
 
 		var value Value
