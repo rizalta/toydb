@@ -11,6 +11,7 @@ type InsertMode uint8
 const (
 	Upsert InsertMode = iota
 	InsertOnly
+	UpdateOnly
 )
 
 func (idx *Index) Insert(key uint64, value uint64, inserMode InsertMode) error {
@@ -58,6 +59,10 @@ func (idx *Index) insert(pageID pager.PageID, key, value uint64, inserMode Inser
 			n.values[i] = value
 			err := idx.writeNode(page, n)
 			return 0, 0, err
+		}
+
+		if inserMode == UpdateOnly {
+			return 0, 0, ErrKeyNotFound
 		}
 
 		n.keys = append(n.keys, 0)

@@ -2,7 +2,10 @@ package storage
 
 import (
 	"bytes"
+	"errors"
 	"testing"
+
+	"github.com/rizalta/toydb/index"
 )
 
 func newTestStore(t *testing.T) *Store {
@@ -407,6 +410,45 @@ func TestRecoveryAfterDelete(t *testing.T) {
 		}
 		if val != nil {
 			t.Fatalf("value for key %s should be nil, but got %s", deleteKey, val)
+		}
+	})
+}
+
+func TestUpdate(t *testing.T) {
+	store := newTestStore(t)
+	defer store.Close()
+
+	key := []byte("key1")
+	value1 := []byte("value1")
+	value2 := []byte("value2")
+
+	t.Run("Update_non_existant", func(t *testing.T) {
+		err := store.Update(key, value1)
+		if !errors.Is(err, index.ErrKeyNotFound) {
+			t.Errorf("expected error %v, got %v", index.ErrKeyNotFound, err)
+		}
+	})
+
+	err := store.Add(key, value1)
+	if err != nil {
+		t.Fatalf("failed to add initial key value: %v", err)
+	}
+
+	t.Run("Update_existing", func(t *testing.T) {
+		err := store.Update(key, value2)
+		if err != nil {
+			t.Fatalf("failed to update existant: %v", err)
+		}
+
+		value, found, err := store.Get(key)
+		if err != nil {
+			t.Fatalf("failed to get after update: %v", err)
+		}
+		if !found {
+			t.Fatalf("expected found to be true, got false")
+		}
+		if !bytes.Equal(value, value2) {
+			t.Errorf("expected value %x, got %x", value2, value)
 		}
 	})
 }

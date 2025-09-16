@@ -207,6 +207,33 @@ func (s *Store) Put(key []byte, value []byte) error {
 	return nil
 }
 
+func (s *Store) Update(key []byte, value []byte) error {
+	record := &Record{
+		RecordType: RecordTypeInsert,
+		Key:        key,
+		Value:      value,
+	}
+
+	serialized := record.serialize()
+
+	err := s.pager.WriteAtOffset(s.offset, serialized)
+	if err != nil {
+		return fmt.Errorf("storage: failed to write record: %v", err)
+	}
+
+	err = s.index.Insert(hashKey(key), s.offset, index.UpdateOnly)
+	if err != nil {
+		if errors.Is(err, index.ErrKeyNotFound) {
+			return err
+		}
+		return fmt.Errorf("storage: failed to index key: %v", err)
+	}
+
+	s.offset += uint64(len(serialized))
+
+	return nil
+}
+
 func (s *Store) Add(key []byte, value []byte) error {
 	record := &Record{
 		RecordType: RecordTypeInsert,

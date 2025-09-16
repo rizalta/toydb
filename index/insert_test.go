@@ -1,6 +1,7 @@
 package index
 
 import (
+	"errors"
 	"slices"
 	"testing"
 )
@@ -56,29 +57,64 @@ func TestInsertSimple(t *testing.T) {
 	})
 }
 
-func TestInsertAndUpdate(t *testing.T) {
+func TestInsertModes(t *testing.T) {
 	index := newTestIndex(t)
 	defer index.Close()
-	if index == nil {
-		t.Fatalf("expected index, got nil")
-	}
 
-	err := index.Insert(10, 100, Upsert)
-	if err != nil {
-		t.Fatalf("failed to insert (10, 100) into index")
-	}
-	err = index.Insert(10, 999, Upsert)
-	if err != nil {
-		t.Fatalf("failed to insert second value 999 for key 10")
-	}
+	key := uint64(100)
+	value1 := uint64(1000)
+	value2 := uint64(2000)
 
-	val, err := index.Search(10)
-	if err != nil {
-		t.Fatalf("failed to search for key 10: %v", err)
-	}
-	if val != 999 {
-		t.Errorf("expected updated value 999 for key 10, got %d", val)
-	}
+	t.Run("UpdateOnly_non_existant", func(t *testing.T) {
+		err := index.Insert(key, value1, UpdateOnly)
+		if !errors.Is(err, ErrKeyNotFound) {
+			t.Errorf("expected error %v, got %v", ErrKeyNotFound, err)
+		}
+	})
+
+	t.Run("InsertOnly_initial", func(t *testing.T) {
+		err := index.Insert(key, value1, InsertOnly)
+		if err != nil {
+			t.Fatalf("initial insert failed: %v", err)
+		}
+	})
+
+	t.Run("InsertOnly_duplicate", func(t *testing.T) {
+		err := index.Insert(key, value2, InsertOnly)
+		if !errors.Is(err, ErrKeyAlreadyExists) {
+			t.Errorf("expected error %v, got %v", ErrKeyAlreadyExists, err)
+		}
+	})
+
+	t.Run("UpdateOnly_existing", func(t *testing.T) {
+		err := index.Insert(key, value2, UpdateOnly)
+		if err != nil {
+			t.Fatalf("update only on existing key failed: %v", err)
+		}
+
+		val, err := index.Search(key)
+		if err != nil {
+			t.Fatalf("search failed after update only: %v", err)
+		}
+		if val != value2 {
+			t.Errorf("expected value %v, got %v after udpate only", value2, val)
+		}
+	})
+
+	t.Run("Upsert_existing", func(t *testing.T) {
+		err := index.Insert(key, value1, Upsert)
+		if err != nil {
+			t.Fatalf("upsert on existing key failed: %v", err)
+		}
+
+		val, err := index.Search(key)
+		if err != nil {
+			t.Fatalf("search failed after upsert: %v", err)
+		}
+		if val != value1 {
+			t.Errorf("expected value %v, got %v after upsert", value1, val)
+		}
+	})
 }
 
 func TestInsertAndSplit(t *testing.T) {
