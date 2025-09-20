@@ -14,10 +14,12 @@ import (
 type NodeType uint16
 
 const (
-	headerSize = 16
-	slotSize   = 2
-	valueSize  = 8
-	childSize  = 4
+	headerSize     = 16
+	slotSize       = 2
+	valueSize      = 8
+	childSize      = 4
+	splitThreshold = pager.PageSize
+	mergeThreshold = splitThreshold / 2
 
 	NodeTypeInternal = iota
 	NodeTypeLeaf
@@ -42,7 +44,7 @@ type Pager interface {
 
 type Header struct {
 	nodeType     NodeType
-	numSlots     uint16
+	numKeys      uint16
 	freeSpacePtr uint16
 	next         pager.PageID
 	checksum     uint32
@@ -51,7 +53,7 @@ type Header struct {
 
 func (h *Header) serialize(data []byte) {
 	binary.LittleEndian.PutUint16(data[0:2], uint16(h.nodeType))
-	binary.LittleEndian.PutUint16(data[2:4], h.numSlots)
+	binary.LittleEndian.PutUint16(data[2:4], h.numKeys)
 	binary.LittleEndian.PutUint16(data[4:6], h.freeSpacePtr)
 	binary.LittleEndian.PutUint32(data[6:10], uint32(h.next))
 	binary.LittleEndian.PutUint32(data[10:14], h.checksum)
@@ -59,7 +61,7 @@ func (h *Header) serialize(data []byte) {
 
 func (h *Header) deserialize(data []byte) {
 	h.nodeType = NodeType(binary.LittleEndian.Uint16(data[0:2]))
-	h.numSlots = binary.LittleEndian.Uint16(data[2:4])
+	h.numKeys = binary.LittleEndian.Uint16(data[2:4])
 	h.freeSpacePtr = binary.LittleEndian.Uint16(data[4:6])
 	h.next = pager.PageID(binary.LittleEndian.Uint32(data[6:10]))
 	h.checksum = binary.LittleEndian.Uint32(data[10:14])
@@ -160,13 +162,13 @@ func (idx *Index) readNode(pageID pager.PageID) (*node, *pager.Page, error) {
 
 	n := &node{
 		nodeType: header.nodeType,
-		keys:     make([][]byte, header.numSlots),
+		keys:     make([][]byte, header.numKeys),
 		next:     header.next,
 	}
 
 	slotOffset := headerSize
 	endOffset := uint16(pager.PageSize)
-	for i := range header.numSlots {
+	for i := range header.numKeys {
 		startOffset := binary.LittleEndian.Uint16(page.Data[slotOffset:])
 		key := page.Data[startOffset:endOffset]
 		n.keys[i] = make([]byte, len(key))
@@ -177,13 +179,13 @@ func (idx *Index) readNode(pageID pager.PageID) (*node, *pager.Page, error) {
 
 	pointersOffset := slotOffset
 	if n.nodeType == NodeTypeLeaf {
-		n.values = make([]uint64, header.numSlots)
+		n.values = make([]uint64, header.numKeys)
 		for i := range n.values {
 			n.values[i] = binary.LittleEndian.Uint64(page.Data[pointersOffset:])
 			pointersOffset += valueSize
 		}
 	} else {
-		n.children = make([]pager.PageID, header.numSlots+1)
+		n.children = make([]pager.PageID, header.numKeys+1)
 		for i := range n.children {
 			n.children[i] = pager.PageID(binary.LittleEndian.Uint32(page.Data[pointersOffset:]))
 			pointersOffset += childSize
@@ -198,10 +200,10 @@ func (idx *Index) writeNode(page *pager.Page, n *node) error {
 		page.Data[i] = 0
 	}
 
-	numSlots := len(n.keys)
+	numKeys := len(n.keys)
 	header := &Header{
 		nodeType:     n.nodeType,
-		numSlots:     uint16(numSlots),
+		numKeys:      uint16(numKeys),
 		freeSpacePtr: pager.PageSize,
 		next:         n.next,
 	}
@@ -237,6 +239,21 @@ func (idx *Index) writeNode(page *pager.Page, n *node) error {
 	header.serialize(page.Data[:headerSize])
 
 	return idx.pager.WritePage(page)
+}
+
+func (n *node) calculateSize() int {
+	numKeys := len(n.keys)
+	size := headerSize + (slotSize * numKeys)
+	if n.nodeType == NodeTypeLeaf {
+		size += valueSize * numKeys
+	} else {
+		size += childSize * (numKeys + 1)
+	}
+	for _, key := range n.keys {
+		size += len(key)
+	}
+
+	return size
 }
 
 func (idx *Index) syncMetaPage() error {
