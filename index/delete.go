@@ -1,12 +1,13 @@
 package index
 
 import (
+	"bytes"
 	"sort"
 
 	"github.com/rizalta/toydb/pager"
 )
 
-func (idx *Index) Delete(key uint64) error {
+func (idx *Index) Delete(key []byte) error {
 	if idx.root == 0 {
 		return ErrKeyNotFound
 	}
@@ -33,7 +34,7 @@ func (idx *Index) Delete(key uint64) error {
 	return nil
 }
 
-func (idx *Index) delete(parentID, pageID pager.PageID, key uint64) error {
+func (idx *Index) delete(parentID, pageID pager.PageID, key []byte) error {
 	n, page, err := idx.readNode(pageID)
 	if err != nil {
 		return err
@@ -41,9 +42,9 @@ func (idx *Index) delete(parentID, pageID pager.PageID, key uint64) error {
 
 	if n.nodeType == NodeTypeLeaf {
 		i := sort.Search(len(n.keys), func(j int) bool {
-			return n.keys[j] >= key
+			return bytes.Compare(n.keys[j], key) >= 0
 		})
-		if i < len(n.keys) && key == n.keys[i] {
+		if i < len(n.keys) && bytes.Equal(key, n.keys[i]) {
 			n.keys = append(n.keys[:i], n.keys[i+1:]...)
 			n.values = append(n.values[:i], n.values[i+1:]...)
 			if err := idx.writeNode(page, n); err != nil {
@@ -52,12 +53,12 @@ func (idx *Index) delete(parentID, pageID pager.PageID, key uint64) error {
 		} else {
 			return ErrKeyNotFound
 		}
-		if parentID != 0 && len(n.keys) < MinKeys {
+		if parentID != 0 && n.calculateSize() < mergeThreshold {
 			return idx.fixUnderflow(parentID, pageID)
 		}
 	} else {
 		i := sort.Search(len(n.keys), func(j int) bool {
-			return n.keys[j] > key
+			return bytes.Compare(n.keys[j], key) > 0
 		})
 
 		childID := n.children[i]
@@ -69,7 +70,7 @@ func (idx *Index) delete(parentID, pageID pager.PageID, key uint64) error {
 		if err != nil {
 			return err
 		}
-		if len(child.keys) < MinKeys {
+		if child.calculateSize() < mergeThreshold {
 			return idx.fixUnderflow(pageID, childID)
 		}
 	}
@@ -106,7 +107,7 @@ func (idx *Index) fixUnderflow(parentID, childID pager.PageID) error {
 		if err != nil {
 			return err
 		}
-		if len(leftNode.keys) > MinKeys {
+		if leftNode.calculateSize() > mergeThreshold {
 			idx.borrowLeft(parentNode, leftNode, childNode, childIdx-1)
 			if err := idx.writeNode(leftPage, leftNode); err != nil {
 				return err
@@ -124,7 +125,7 @@ func (idx *Index) fixUnderflow(parentID, childID pager.PageID) error {
 		if err != nil {
 			return err
 		}
-		if len(rightNode.keys) > MinKeys {
+		if rightNode.calculateSize() > mergeThreshold {
 			idx.borrowRight(parentNode, rightNode, childNode, childIdx)
 			if err := idx.writeNode(rightPage, rightNode); err != nil {
 				return err
@@ -176,7 +177,7 @@ func (idx *Index) fixUnderflow(parentID, childID pager.PageID) error {
 func (idx *Index) borrowLeft(parent, left, child *node, sepKeyIdx int) {
 	leftIdx := len(left.keys) - 1
 	if child.nodeType == NodeTypeLeaf {
-		child.keys = append([]uint64{left.keys[leftIdx]}, child.keys...)
+		child.keys = append([][]byte{left.keys[leftIdx]}, child.keys...)
 		child.values = append([]uint64{left.values[leftIdx]}, child.values...)
 		left.keys = left.keys[:leftIdx]
 		left.values = left.values[:leftIdx]
@@ -184,7 +185,7 @@ func (idx *Index) borrowLeft(parent, left, child *node, sepKeyIdx int) {
 	} else {
 		oldSeperator := parent.keys[sepKeyIdx]
 		newSeperator := left.keys[leftIdx]
-		child.keys = append([]uint64{oldSeperator}, child.keys...)
+		child.keys = append([][]byte{oldSeperator}, child.keys...)
 		child.children = append([]pager.PageID{left.children[leftIdx+1]}, child.children...)
 		left.keys = left.keys[:leftIdx]
 		left.children = left.children[:leftIdx+1]
