@@ -75,7 +75,7 @@ func TestDBPutGet(t *testing.T) {
 					t.Errorf("failed to insert row %v: %v", tt.row, err)
 				}
 
-				retrievedRow, found, err := db.GetRow(tableName, tt.row[0])
+				retrievedRow, found, err := db.Get(tableName, tt.row[0])
 				if err != nil {
 					t.Fatalf("failed to get for primary key %d: %v", tt.row[0], err)
 				}
@@ -94,7 +94,7 @@ func TestDBPutGet(t *testing.T) {
 	}
 
 	t.Run("get non existing key", func(t *testing.T) {
-		_, found, err := db.GetRow(tableName, int64(444))
+		_, found, err := db.Get(tableName, int64(444))
 		if err != nil {
 			t.Fatalf("failed to get for non existing key: %v", err)
 		}
@@ -140,7 +140,7 @@ func TestUpdate(t *testing.T) {
 			t.Fatalf("failed to update: %v", err)
 		}
 
-		retrievedRow, found, err := db.GetRow(tableName, primaryKey)
+		retrievedRow, found, err := db.Get(tableName, primaryKey)
 		if err != nil || !found {
 			t.Fatalf("expected no error and found true, got %v, false", err)
 		}
@@ -203,7 +203,7 @@ func TestPutGetStringPrimaryKey(t *testing.T) {
 					t.Errorf("failed to insert row %v: %v", tt.row, err)
 				}
 
-				retrievedRow, found, err := db.GetRow(tableName, tt.row[1])
+				retrievedRow, found, err := db.Get(tableName, tt.row[1])
 				if err != nil {
 					t.Fatalf("failed to get for primary key %d: %v", tt.row[1], err)
 				}
@@ -222,12 +222,68 @@ func TestPutGetStringPrimaryKey(t *testing.T) {
 	}
 
 	t.Run("get non existing key", func(t *testing.T) {
-		_, found, err := db.GetRow(tableName, int64(444))
+		_, found, err := db.Get(tableName, int64(444))
 		if err != nil {
 			t.Fatalf("failed to get for non existing key: %v", err)
 		}
 		if found {
 			t.Errorf("expected found to be false, got true")
+		}
+	})
+}
+
+func TestDBDelete(t *testing.T) {
+	db := newTestDB(t)
+	defer db.Close()
+
+	tableName := "users"
+	columns := []catalog.Column{
+		{Name: "id", Type: catalog.TypeInt, IsPrimaryKey: true, IsNotNull: true},
+		{Name: "name", Type: catalog.TypeVarChar, IsNotNull: true},
+	}
+	db.catalog.CreateTable(tableName, columns)
+
+	row1 := tuple.Tuple{int64(1), "alice"}
+	row2 := tuple.Tuple{int64(2), "bob"}
+	pk1 := row1[0]
+	pk2 := row2[0]
+	db.Insert(tableName, row1)
+	db.Insert(tableName, row2)
+
+	t.Run("Verify_delete_existing_row", func(t *testing.T) {
+		err := db.Delete(tableName, pk1)
+		if err != nil {
+			t.Fatalf("failed to delete primary key %v", pk1)
+		}
+
+		_, found, err := db.Get(tableName, pk1)
+		if err != nil {
+			t.Fatalf("expected error to be nil  when get deleted key, got %v", err)
+		}
+		if found {
+			t.Errorf("expected found to be false for deleted key")
+		}
+		retrievedRow, found, err := db.Get(tableName, pk2)
+		if !found || err != nil {
+			t.Fatalf("found should be true and err is nil for %v, got %v", pk2, err)
+		}
+		if !reflect.DeepEqual(retrievedRow, row2) {
+			t.Errorf("expected row %v, got %v", row2, retrievedRow)
+		}
+	})
+
+	t.Run("Verify_delete_non_existing", func(t *testing.T) {
+		nonExistantKey := int64(3)
+		err := db.Delete(tableName, nonExistantKey)
+		if err != nil {
+			t.Fatalf("non existant key should not return error: %v", err)
+		}
+	})
+
+	t.Run("Verify_delete_key_again", func(t *testing.T) {
+		err := db.Delete(tableName, pk1)
+		if err != nil {
+			t.Fatalf("deleting key again not return error: %v", err)
 		}
 	})
 }

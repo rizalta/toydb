@@ -7,6 +7,7 @@ import (
 	"math"
 
 	"github.com/rizalta/toydb/catalog"
+	"github.com/rizalta/toydb/index"
 	"github.com/rizalta/toydb/storage"
 	"github.com/rizalta/toydb/tuple"
 )
@@ -95,7 +96,7 @@ func (db *Database) Insert(tableName string, row tuple.Tuple) error {
 	return db.store.Add(key, data)
 }
 
-func (db *Database) GetRow(tableName string, primaryKey tuple.Value) (tuple.Tuple, bool, error) {
+func (db *Database) Get(tableName string, primaryKey tuple.Value) (tuple.Tuple, bool, error) {
 	schema, err := db.catalog.GetTable(tableName)
 	if err != nil {
 		return nil, false, err
@@ -152,6 +153,23 @@ func (db *Database) Update(tableName string, row tuple.Tuple) error {
 	}
 
 	return db.store.Update(key, valueBytes)
+}
+
+func (db *Database) Delete(tableName string, primaryKey tuple.Value) error {
+	schema, err := db.catalog.GetTable(tableName)
+	if err != nil {
+		return err
+	}
+
+	key, err := createKey(schema.ID, primaryKey)
+	if err != nil {
+		return err
+	}
+
+	if _, err := db.store.Delete(key); !errors.Is(err, index.ErrKeyNotFound) {
+		return err
+	}
+	return nil
 }
 
 func (db *Database) Close() error {
