@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"hash/fnv"
 	"os"
 	"path/filepath"
 
@@ -20,9 +19,9 @@ type Pager interface {
 }
 
 type Index interface {
-	Insert(key uint64, value uint64, insertMode index.InsertMode) error
-	Search(key uint64) (uint64, error)
-	Delete(key uint64) error
+	Insert(key []byte, value uint64, insertMode index.InsertMode) error
+	Search(key []byte) (uint64, error)
+	Delete(key []byte) error
 	Close() error
 }
 
@@ -117,7 +116,7 @@ func (s *Store) recoverIndex() error {
 			break
 		}
 
-		err = s.index.Insert(hashKey(r.Key), offset, index.Upsert)
+		err = s.index.Insert(r.Key, offset, index.Upsert)
 		if err != nil {
 			return err
 		}
@@ -177,12 +176,6 @@ func deserialize(data []byte) (*Record, error) {
 	}, nil
 }
 
-func hashKey(key []byte) uint64 {
-	h := fnv.New64a()
-	h.Write(key)
-	return h.Sum64()
-}
-
 func (s *Store) Put(key []byte, value []byte) error {
 	record := &Record{
 		RecordType: RecordTypeInsert,
@@ -197,7 +190,7 @@ func (s *Store) Put(key []byte, value []byte) error {
 		return fmt.Errorf("storage: failed to write record: %v", err)
 	}
 
-	err = s.index.Insert(hashKey(key), s.offset, index.Upsert)
+	err = s.index.Insert(key, s.offset, index.Upsert)
 	if err != nil {
 		return fmt.Errorf("storage: failed to index key: %v", err)
 	}
@@ -221,7 +214,7 @@ func (s *Store) Update(key []byte, value []byte) error {
 		return fmt.Errorf("storage: failed to write record: %v", err)
 	}
 
-	err = s.index.Insert(hashKey(key), s.offset, index.UpdateOnly)
+	err = s.index.Insert(key, s.offset, index.UpdateOnly)
 	if err != nil {
 		if errors.Is(err, index.ErrKeyNotFound) {
 			return err
@@ -248,7 +241,7 @@ func (s *Store) Add(key []byte, value []byte) error {
 		return fmt.Errorf("storage: failed to write record: %v", err)
 	}
 
-	err = s.index.Insert(hashKey(key), s.offset, index.InsertOnly)
+	err = s.index.Insert(key, s.offset, index.InsertOnly)
 	if err != nil {
 		if errors.Is(err, index.ErrKeyAlreadyExists) {
 			return err
@@ -284,7 +277,7 @@ func (s *Store) readRecord(offset uint64) (*Record, error) {
 }
 
 func (s *Store) Get(key []byte) ([]byte, bool, error) {
-	offset, err := s.index.Search(hashKey(key))
+	offset, err := s.index.Search(key)
 	if err != nil {
 		if errors.Is(err, index.ErrKeyNotFound) {
 			return nil, false, nil
@@ -305,7 +298,7 @@ func (s *Store) Get(key []byte) ([]byte, bool, error) {
 }
 
 func (s *Store) Delete(key []byte) (bool, error) {
-	offset, err := s.index.Search(hashKey(key))
+	offset, err := s.index.Search(key)
 	if err != nil {
 		if errors.Is(err, index.ErrKeyNotFound) {
 			return false, nil
@@ -334,7 +327,7 @@ func (s *Store) Delete(key []byte) (bool, error) {
 		return false, fmt.Errorf("storage: failed to write tombstone: %v", err)
 	}
 
-	err = s.index.Insert(hashKey(key), s.offset, index.Upsert)
+	err = s.index.Insert(key, s.offset, index.Upsert)
 	if err != nil {
 		return false, fmt.Errorf("storage: failed to index key: %v", err)
 	}
