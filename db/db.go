@@ -4,6 +4,7 @@ package db
 import (
 	"encoding/binary"
 	"errors"
+	"math"
 
 	"github.com/rizalta/toydb/catalog"
 	"github.com/rizalta/toydb/storage"
@@ -41,15 +42,24 @@ func NewDatabase(dirPath string) (*Database, error) {
 }
 
 func createKey(tableID uint32, primaryKey tuple.Value) ([]byte, error) {
-	pkVal, ok := primaryKey.(int64)
-	if !ok {
+	keyPrefix := make([]byte, 4)
+	binary.LittleEndian.PutUint32(keyPrefix, tableID)
+
+	var keySuffix []byte
+	switch pk := primaryKey.(type) {
+	case int64:
+		keySuffix = make([]byte, 8)
+		binary.LittleEndian.PutUint64(keySuffix, uint64(pk))
+	case float64:
+		keySuffix = make([]byte, 8)
+		binary.LittleEndian.PutUint64(keySuffix, math.Float64bits(pk))
+	case string:
+		keySuffix = []byte(pk)
+	default:
 		return nil, ErrInvalidPrimaryKey
 	}
 
-	key := make([]byte, 12)
-	binary.LittleEndian.PutUint32(key[0:], tableID)
-	binary.LittleEndian.PutUint64(key[4:], uint64(pkVal))
-
+	key := append(keyPrefix, keySuffix...)
 	return key, nil
 }
 
@@ -85,7 +95,7 @@ func (db *Database) Insert(tableName string, row tuple.Tuple) error {
 	return db.store.Add(key, data)
 }
 
-func (db *Database) Get(tableName string, primaryKey tuple.Value) (tuple.Tuple, bool, error) {
+func (db *Database) GetRow(tableName string, primaryKey tuple.Value) (tuple.Tuple, bool, error) {
 	schema, err := db.catalog.GetTable(tableName)
 	if err != nil {
 		return nil, false, err

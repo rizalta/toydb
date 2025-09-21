@@ -8,10 +8,11 @@ import (
 )
 
 var (
-	ErrAlreadyExists       = errors.New("catalog: table already exists")
-	ErrNoPrimaryKey        = errors.New("catalog: no primary key")
-	ErrMultiplePrimaryKeys = errors.New("catalog: multiple primary keys")
-	ErrPrimaryKeyNotNull   = errors.New("catalog: primary key should be not null")
+	ErrAlreadyExists         = errors.New("catalog: table already exists")
+	ErrNoPrimaryKey          = errors.New("catalog: no primary key")
+	ErrMultiplePrimaryKeys   = errors.New("catalog: multiple primary keys")
+	ErrPrimaryKeyNotNull     = errors.New("catalog: primary key should be not null")
+	ErrUnsupportedPrimaryKey = errors.New("catalog: unsupported type for primary key")
 )
 
 var metaKey = []byte("catalog:__schema__")
@@ -81,8 +82,15 @@ func (m *Manager) CreateTable(name string, columns []Column) (*Schema, error) {
 	}
 
 	primaryKeyIndex := primaryKeyCols[0]
+	primaryKeyColumn := columns[primaryKeyIndex]
 
-	if !columns[primaryKeyIndex].IsNotNull {
+	switch primaryKeyColumn.Type {
+	case TypeInt, TypeVarChar, TypeFloat:
+	default:
+		return nil, ErrUnsupportedPrimaryKey
+	}
+
+	if !primaryKeyColumn.IsNotNull {
 		return nil, ErrPrimaryKeyNotNull
 	}
 
