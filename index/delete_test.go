@@ -2,32 +2,39 @@ package index
 
 import (
 	"errors"
+	"fmt"
 	"math/rand"
+	"strconv"
+	"strings"
 	"testing"
 )
 
+func makeKey(i int) []byte {
+	return fmt.Appendf(nil, "key_%010d", i)
+}
+
 func TestDeleteBasicScenarios(t *testing.T) {
-	m := map[uint64]uint64{10: 100, 20: 200, 30: 300, 40: 400}
+	m := map[int]uint64{10: 100, 20: 200, 30: 300, 40: 400}
 
 	tests := []struct {
 		name      string
-		deleteKey uint64
-		expected  []uint64
+		deleteKey int
+		expected  []int
 	}{
 		{
 			name:      "Verify_delete_existing_key",
 			deleteKey: 20,
-			expected:  []uint64{10, 30, 40},
+			expected:  []int{10, 30, 40},
 		},
 		{
 			name:      "Verify_delete_smallest_key",
 			deleteKey: 10,
-			expected:  []uint64{20, 30, 40},
+			expected:  []int{20, 30, 40},
 		},
 		{
 			name:      "Verify_delete_largest_key",
 			deleteKey: 40,
-			expected:  []uint64{10, 20, 30},
+			expected:  []int{10, 20, 30},
 		},
 	}
 
@@ -37,17 +44,17 @@ func TestDeleteBasicScenarios(t *testing.T) {
 			defer index.Close()
 
 			for key, value := range m {
-				if err := index.Insert(key, value, Upsert); err != nil {
+				if err := index.Insert(makeKey(key), value, Upsert); err != nil {
 					t.Fatalf("failed to insert key %d into index: %v", key, err)
 				}
 			}
 
 			t.Run("Verify_key_is_deleted", func(t *testing.T) {
-				err := index.Delete(tt.deleteKey)
+				err := index.Delete(makeKey(tt.deleteKey))
 				if err != nil {
 					t.Fatalf("failed to delete key %d: %v", tt.deleteKey, err)
 				}
-				_, err = index.Search(tt.deleteKey)
+				_, err = index.Search(makeKey(tt.deleteKey))
 				if !errors.Is(err, ErrKeyNotFound) {
 					t.Errorf("expected %v for err, got %v", ErrKeyNotFound, err)
 				}
@@ -55,7 +62,7 @@ func TestDeleteBasicScenarios(t *testing.T) {
 
 			t.Run("Verify_all_other_keys", func(t *testing.T) {
 				for _, key := range tt.expected {
-					value, err := index.Search(key)
+					value, err := index.Search(makeKey(key))
 					if err != nil {
 						t.Fatalf("failed to search for key %d: %v", key, err)
 					}
@@ -72,26 +79,26 @@ func TestDeleteInvalidKey(t *testing.T) {
 	index := newTestIndex(t)
 	defer index.Close()
 
-	m := map[uint64]uint64{10: 100, 20: 200, 30: 300, 40: 400}
+	m := map[int]uint64{10: 100, 20: 200, 30: 300, 40: 400}
 
 	for key, value := range m {
-		if err := index.Insert(key, value, Upsert); err != nil {
+		if err := index.Insert(makeKey(key), value, Upsert); err != nil {
 			t.Fatalf("failed to insert key %d into index: %v", key, err)
 		}
 	}
 
 	t.Run("Verify_delete_invalid_key", func(t *testing.T) {
-		deleteKey := uint64(88)
-		err := index.Delete(deleteKey)
+		deleteKey := 88
+		err := index.Delete(makeKey(deleteKey))
 		if !errors.Is(err, ErrKeyNotFound) {
 			t.Errorf("expected error as %v, got %v when deleting invalid key", ErrKeyNotFound, err)
 		}
 	})
 
 	t.Run("Verify_all_other_keys", func(t *testing.T) {
-		expected := []uint64{10, 20, 30, 40}
+		expected := []int{10, 20, 30, 40}
 		for _, key := range expected {
-			value, err := index.Search(key)
+			value, err := index.Search(makeKey(key))
 			if err != nil {
 				t.Fatalf("failed to search for key %d: %v", key, err)
 			}
@@ -106,7 +113,7 @@ func TestDeleteEmptyIndex(t *testing.T) {
 	index := newTestIndex(t)
 	defer index.Close()
 
-	err := index.Delete(10)
+	err := index.Delete(makeKey(10))
 	if !errors.Is(err, ErrKeyNotFound) {
 		t.Errorf("expected error %v when deleting empty index, got %v", ErrKeyNotFound, err)
 	}
@@ -116,30 +123,30 @@ func TestDeleteKeyTwice(t *testing.T) {
 	index := newTestIndex(t)
 	defer index.Close()
 
-	m := map[uint64]uint64{10: 100, 20: 200, 30: 300, 40: 400}
+	m := map[int]uint64{10: 100, 20: 200, 30: 300, 40: 400}
 
 	for key, value := range m {
-		if err := index.Insert(key, value, Upsert); err != nil {
+		if err := index.Insert(makeKey(key), value, Upsert); err != nil {
 			t.Fatalf("failed to insert key %d into index: %v", key, err)
 		}
 	}
 
 	t.Run("Verify_delete_key_twice", func(t *testing.T) {
-		deleteKey := uint64(20)
-		err := index.Delete(deleteKey)
+		deleteKey := 20
+		err := index.Delete(makeKey(deleteKey))
 		if err != nil {
 			t.Fatalf("failed to delete key first time for key %d: %v", deleteKey, err)
 		}
-		err = index.Delete(deleteKey)
+		err = index.Delete(makeKey(deleteKey))
 		if !errors.Is(err, ErrKeyNotFound) {
 			t.Errorf("expected error as %v, got %v when deleting key twice", ErrKeyNotFound, err)
 		}
 	})
 
 	t.Run("Verify_all_other_keys", func(t *testing.T) {
-		expected := []uint64{10, 30, 40}
+		expected := []int{10, 30, 40}
 		for _, key := range expected {
-			value, err := index.Search(key)
+			value, err := index.Search(makeKey(key))
 			if err != nil {
 				t.Fatalf("failed to search for key %d: %v", key, err)
 			}
@@ -154,14 +161,14 @@ func TestDeleteOnlyKey(t *testing.T) {
 	index := newTestIndex(t)
 	defer index.Close()
 
-	key := uint64(10)
+	key := 10
 	value := uint64(100)
-	err := index.Insert(key, value, Upsert)
+	err := index.Insert(makeKey(key), value, Upsert)
 	if err != nil {
 		t.Fatalf("failed to insert key %d into index: %v", key, err)
 	}
 
-	err = index.Delete(key)
+	err = index.Delete(makeKey(key))
 	if err != nil {
 		t.Fatalf("failed to delete the only key %d: %v", key, err)
 	}
@@ -175,32 +182,47 @@ func TestDeleteOnlyKey(t *testing.T) {
 func TestDeleteUnderflowBorrow(t *testing.T) {
 	index := newTestIndex(t)
 
-	m := make(map[uint64]uint64)
-	for i := range MaxKeys + 1 {
-		m[uint64(i)] = uint64(i + 1000)
-	}
-
-	for key, value := range m {
+	m := make(map[int]uint64)
+	i := 0
+	for {
+		key := makeKey(i)
+		value := uint64(i + 1000)
+		rootNode, _, _ := index.readNode(index.root)
+		entrySize := len(key) + slotSize + valueSize
+		if rootNode.calculateSize()+entrySize > splitThreshold {
+			break
+		}
+		m[i] = value
 		err := index.Insert(key, value, Upsert)
 		if err != nil {
-			t.Fatalf("failed to insert for key %d: %v", key, err)
+			t.Fatalf("failed to insert for key %d: %v", i, err)
 		}
+		i++
+	}
+	err := index.Insert(makeKey(i), uint64(i+1000), Upsert)
+	if err != nil {
+		t.Fatalf("failed to insert for key %d: %v", i, err)
 	}
 
-	deleteKey := uint64(127)
-	err := index.Delete(deleteKey)
+	rootNode, _, _ := index.readNode(index.root)
+	leftChildID := rootNode.children[0]
+	leftChild, _, _ := index.readNode(leftChildID)
+	deleteKey := leftChild.keys[len(leftChild.keys)-1]
+	deleteKeyNum, _ := strconv.Atoi(string(deleteKey)[4:])
+	err = index.Delete(deleteKey)
 	if err != nil {
-		t.Fatalf("failed to delete key %d: %v", deleteKey, err)
+		t.Fatalf("failed to delete key %d: %v", deleteKeyNum, err)
 	}
-	delete(m, deleteKey)
+	delete(m, deleteKeyNum)
 
 	t.Run("Verify_delete_underflow", func(t *testing.T) {
-		deleteKey := uint64(126)
+		deleteKey := leftChild.keys[len(leftChild.keys)-2]
+		deleteKeyNum, _ := strconv.Atoi(string(deleteKey)[4:])
 		err = index.Delete(deleteKey)
 		if err != nil {
-			t.Fatalf("failed to delete key %d: %v", deleteKey, err)
+			t.Fatalf("failed to delete key %d: %v", deleteKeyNum, err)
 		}
-		delete(m, deleteKey)
+		delete(m, deleteKeyNum)
 
 		_, err := index.Search(deleteKey)
 		if !errors.Is(err, ErrKeyNotFound) {
@@ -210,7 +232,7 @@ func TestDeleteUnderflowBorrow(t *testing.T) {
 
 	t.Run("Verify_all_other_keys", func(t *testing.T) {
 		for key, expectedValue := range m {
-			value, err := index.Search(key)
+			value, err := index.Search(makeKey(key))
 			if err != nil {
 				t.Fatalf("failed to search for key %d: %v", key, err)
 			}
@@ -224,39 +246,56 @@ func TestDeleteUnderflowBorrow(t *testing.T) {
 func TestDeleteUnderflowMerge(t *testing.T) {
 	index := newTestIndex(t)
 
-	m := make(map[uint64]uint64)
-	for i := range MaxKeys + 1 {
-		m[uint64(i)] = uint64(i + 1000)
-	}
-
-	for key, value := range m {
+	m := make(map[int]uint64)
+	i := 0
+	for {
+		rootNode, _, _ := index.readNode(index.root)
+		key := makeKey(i)
+		value := uint64(i + 1000)
+		entrySize := len(key) + slotSize + valueSize
+		if rootNode.calculateSize()+entrySize > splitThreshold {
+			break
+		}
+		m[i] = value
 		err := index.Insert(key, value, Upsert)
 		if err != nil {
 			t.Fatalf("failed to insert for key %d: %v", key, err)
 		}
+		i++
 	}
-
-	deleteKey := uint64(127)
-	err := index.Delete(deleteKey)
+	err := index.Insert(makeKey(i), uint64(i+1000), Upsert)
 	if err != nil {
-		t.Fatalf("failed to delete key %d: %v", deleteKey, err)
+		t.Fatalf("failed to insert for key %d: %v", i, err)
 	}
-	delete(m, deleteKey)
 
-	deleteKey = uint64(255)
+	rootNode, _, _ := index.readNode(index.root)
+	leftChildID, rightChildID := rootNode.children[0], rootNode.children[1]
+	leftChild, _, _ := index.readNode(leftChildID)
+	rightChild, _, _ := index.readNode(rightChildID)
+	deleteKey := leftChild.keys[len(leftChild.keys)-1]
+	deleteKeyNum, _ := strconv.Atoi(string(deleteKey)[4:])
 	err = index.Delete(deleteKey)
 	if err != nil {
-		t.Fatalf("failed to delete key %d: %v", deleteKey, err)
+		t.Fatalf("failed to delete key %d: %v", deleteKeyNum, err)
 	}
-	delete(m, deleteKey)
+	delete(m, deleteKeyNum)
+
+	deleteKey = rightChild.keys[len(rightChild.keys)-1]
+	deleteKeyNum, _ = strconv.Atoi(string(deleteKey)[4:])
+	err = index.Delete(deleteKey)
+	if err != nil {
+		t.Fatalf("failed to delete key %d: %v", deleteKeyNum, err)
+	}
+	delete(m, deleteKeyNum)
 
 	t.Run("Verify_delete_underflow", func(t *testing.T) {
-		deleteKey := uint64(126)
+		deleteKey := leftChild.keys[len(leftChild.keys)-2]
+		deleteKeyNum, _ = strconv.Atoi(string(deleteKey)[4:])
 		err = index.Delete(deleteKey)
 		if err != nil {
-			t.Fatalf("failed to delete key %d: %v", deleteKey, err)
+			t.Fatalf("failed to delete key %d: %v", deleteKeyNum, err)
 		}
-		delete(m, deleteKey)
+		delete(m, deleteKeyNum)
 
 		_, err := index.Search(deleteKey)
 		if !errors.Is(err, ErrKeyNotFound) {
@@ -266,7 +305,7 @@ func TestDeleteUnderflowMerge(t *testing.T) {
 
 	t.Run("Verify_all_other_keys", func(t *testing.T) {
 		for key, expectedValue := range m {
-			value, err := index.Search(key)
+			value, err := index.Search(makeKey(key))
 			if err != nil {
 				t.Fatalf("failed to search for key %d: %v", key, err)
 			}
@@ -280,23 +319,27 @@ func TestDeleteUnderflowMerge(t *testing.T) {
 func TestDeleteStress(t *testing.T) {
 	index := newTestIndex(t)
 
-	inserts := make(map[uint64]uint64)
-	deletes := make(map[uint64]struct{})
+	inserts := make(map[int]uint64)
+	deletes := make(map[int]struct{})
 
 	seed := 42
 	r := rand.New(rand.NewSource(int64(seed)))
 
 	isInsert := func() bool { return r.Intn(2) == 0 }
+	makeKey := func(i int) []byte {
+		padding := strings.Repeat("0", i%10)
+		return fmt.Appendf(nil, "key_%s%d", padding, i)
+	}
 
 	numOperations := 20000
 	maxKey := 5000
 
 	for range numOperations {
-		key := uint64(r.Intn(maxKey))
+		key := r.Intn(maxKey)
 		value := uint64(r.Intn(maxKey))
 
 		if isInsert() {
-			err := index.Insert(key, value, Upsert)
+			err := index.Insert(makeKey(key), value, Upsert)
 			if err != nil {
 				t.Fatalf("failed to insert key %d: %v", key, err)
 			}
@@ -304,7 +347,7 @@ func TestDeleteStress(t *testing.T) {
 			delete(deletes, key)
 
 		} else {
-			err := index.Delete(key)
+			err := index.Delete(makeKey(key))
 			if _, exist := inserts[key]; exist {
 				if err != nil {
 					t.Fatalf("failed to delete key %d: %v", key, err)
@@ -321,7 +364,7 @@ func TestDeleteStress(t *testing.T) {
 
 	t.Run("Verify_deleted_keys_not_found", func(t *testing.T) {
 		for key := range deletes {
-			_, err := index.Search(key)
+			_, err := index.Search(makeKey(key))
 			if !errors.Is(err, ErrKeyNotFound) {
 				t.Errorf("expected error %v, got %v for key %d", ErrKeyNotFound, err, key)
 			}
@@ -330,7 +373,7 @@ func TestDeleteStress(t *testing.T) {
 
 	t.Run("Verify_all_other_keys", func(t *testing.T) {
 		for key, expectedValue := range inserts {
-			value, err := index.Search(key)
+			value, err := index.Search(makeKey(key))
 			if err != nil {
 				t.Fatalf("failed to search for key %d: %v", key, err)
 			}

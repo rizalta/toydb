@@ -2,7 +2,8 @@ package index
 
 import (
 	"errors"
-	"slices"
+	"fmt"
+	"reflect"
 	"testing"
 )
 
@@ -14,44 +15,46 @@ func TestInsertSimple(t *testing.T) {
 	}
 
 	t.Run("Insert_one_key_value", func(t *testing.T) {
-		err := index.Insert(10, 100, Upsert)
+		key1 := []byte("key1")
+		err := index.Insert(key1, 100, Upsert)
 		if err != nil {
-			t.Fatalf("failed to insert (10, 100) into index")
+			t.Fatalf("failed to insert key %s into index", key1)
 		}
-		val, err := index.Search(10)
+		val, err := index.Search(key1)
 		if err != nil {
-			t.Fatalf("search for key 10 should not give err: %v", err)
+			t.Fatalf("search for key %s should not give err: %v", key1, err)
 		}
 		if val != 100 {
-			t.Errorf("expected value 100 for key 10, got %d", val)
+			t.Errorf("expected value 100 for key %s, got %d", key1, val)
 		}
 	})
 
 	t.Run("Insert_second_key_value", func(t *testing.T) {
-		err := index.Insert(5, 50, Upsert)
+		key2 := []byte("key2")
+		err := index.Insert(key2, 50, Upsert)
 		if err != nil {
-			t.Fatalf("failed to insert (5, 50) into index")
+			t.Fatalf("failed to insert key %s into index", key2)
 		}
-		val, err := index.Search(5)
+		val, err := index.Search(key2)
 		if err != nil {
-			t.Fatalf("search for key 5 should not give err: %v", err)
+			t.Fatalf("search for key %s should not give err: %v", key2, err)
 		}
 		if val != 50 {
-			t.Errorf("expected value 50 for key 5, got %d", val)
+			t.Errorf("expected value 50 for key %s, got %d", key2, val)
 		}
-		val, err = index.Search(10)
+		val, err = index.Search([]byte("key1"))
 		if err != nil {
-			t.Fatalf("search for key 10 should not give err: %v", err)
+			t.Fatalf("search for key key1 should not give err: %v", err)
 		}
 		if val != 100 {
-			t.Errorf("expected value 100 for key 10, got %d", val)
+			t.Errorf("expected value 100 for key key1, got %d", val)
 		}
 	})
 
 	t.Run("Validate_keys_are_sorted_in_page", func(t *testing.T) {
 		root, _, _ := index.readNode(1)
-		expectedKeys := []uint64{5, 10}
-		if !slices.Equal(root.keys, expectedKeys) {
+		expectedKeys := [][]byte{[]byte("key1"), []byte("key2")}
+		if !reflect.DeepEqual(root.keys, expectedKeys) {
 			t.Errorf("expected keys in root node as %v, got %v", expectedKeys, root.keys)
 		}
 	})
@@ -61,7 +64,7 @@ func TestInsertModes(t *testing.T) {
 	index := newTestIndex(t)
 	defer index.Close()
 
-	key := uint64(100)
+	key := []byte("100")
 	value1 := uint64(1000)
 	value2 := uint64(2000)
 
@@ -124,34 +127,37 @@ func TestInsertAndSplit(t *testing.T) {
 		t.Fatalf("expected index, got nil")
 	}
 
-	for i := range MaxKeys {
-		key := uint64(i)
+	i := 0
+	for {
+		key := fmt.Appendf(nil, "key_%04d", i)
 		value := uint64(1000 + i)
+		rootNode, _, _ := index.readNode(index.root)
+		keySize := len(key)
+		entrySize := keySize + slotSize + valueSize
 		err := index.Insert(key, value, Upsert)
+		if rootNode.calculateSize()+entrySize > splitThreshold {
+			break
+		}
 		if err != nil {
 			t.Fatalf("failed to insert (%d, %d) into index: %v", key, value, err)
 		}
+		i++
 	}
-	root, _, err := index.readNode(index.root)
-	if err != nil {
-		t.Fatalf("failed to read root node from page id %d: %v", index.root, err)
-	}
-	if len(root.keys) != MaxKeys {
-		t.Fatalf("expected root node be full with %d keys, but got %d", MaxKeys, len(root.keys))
-	}
-	splitKey := uint64(MaxKeys)
-	splitValue := uint64(MaxKeys + 1000)
 
-	err = index.Insert(splitKey, splitValue, Upsert)
+	splitKey := fmt.Appendf(nil, "key_%04d", i)
+	splitValue := uint64(1000 + i)
+
+	err := index.Insert(splitKey, splitValue, Upsert)
 	if err != nil {
 		t.Fatalf("failed to insert (%d, %d) into index which should trigger split: %v", splitKey, splitValue, err)
 	}
 
+	root, _, err := index.readNode(index.root)
+	if err != nil {
+		t.Fatalf("failed to read root node from page id %d: %v", index.root, err)
+	}
+
 	t.Run("Verify_root_node", func(t *testing.T) {
-		root, _, err = index.readNode(index.root)
-		if err != nil {
-			t.Fatalf("failed to read root node from page id %d: %v", index.root, err)
-		}
 		if root.nodeType != NodeTypeInternal {
 			t.Errorf("expected root nodeType to be NodeTypeInternal, got %v", root.nodeType)
 		}
@@ -161,85 +167,54 @@ func TestInsertAndSplit(t *testing.T) {
 		if len(root.children) != 2 {
 			t.Errorf("expected num of children for root node be 2, got %d", len(root.children))
 		}
-		expectedKey := uint64((MaxKeys + 1) / 2)
-		if root.keys[0] != expectedKey {
-			t.Errorf("expected promoted key to be median key %d, got %d", expectedKey, root.keys[0])
-		}
 	})
 
-	root, _, err = index.readNode(index.root)
-	leftChildID := root.children[0]
-	rightChildID := root.children[1]
+	leftChildID, rightChildID := root.children[0], root.children[1]
+	leftChild, _, err := index.readNode(leftChildID)
+	if err != nil {
+		t.Fatalf("failed to read left child: %v", err)
+	}
+	rightChild, _, err := index.readNode(rightChildID)
+	if err != nil {
+		t.Fatalf("failed to read right child: %v", err)
+	}
 
-	t.Run("Verify_left_node", func(t *testing.T) {
-		leftChild, _, err := index.readNode(leftChildID)
-		if err != nil {
-			t.Fatalf("failed to read left child node from page id %d: %v", leftChildID, err)
-		}
+	t.Run("Verify_left_child", func(t *testing.T) {
 		if leftChild.nodeType != NodeTypeLeaf {
-			t.Errorf("expected child nodeType to be NodeTypeLeaf, got %v", leftChild.nodeType)
+			t.Errorf("expected left child nodeType to be NodeTypeInternal, got %v", leftChild.nodeType)
 		}
-		expectedKeyCount := (MaxKeys + 1) / 2
-		if len(leftChild.keys) != expectedKeyCount {
-			t.Errorf("expected left node to have %d keys, got %d", expectedKeyCount, len(leftChild.keys))
+
+		if leftChild.calculateSize() < mergeThreshold {
+			t.Errorf("expected left child size to be greater than %v, got %v", mergeThreshold, leftChild.calculateSize())
 		}
-		for i := range expectedKeyCount {
-			key := uint64(i)
-			value := uint64(1000 + i)
-			if leftChild.keys[i] != key {
-				t.Errorf("expected key %d at index %d, got %d", key, i, leftChild.keys[i])
-			}
-			if leftChild.values[i] != value {
-				t.Errorf("expected value %d at index %d, got %d", value, i, leftChild.values[i])
-			}
-		}
+
 		if leftChild.next != rightChildID {
-			t.Errorf("expected right child id %d to be next of left child, got %d", rightChildID, leftChild.next)
+			t.Errorf("expected left child next to be %v, got %v", rightChildID, leftChild.next)
 		}
 	})
 
-	t.Run("Verify_right_node", func(t *testing.T) {
-		rightChild, _, err := index.readNode(rightChildID)
-		if err != nil {
-			t.Fatalf("failed to read right child node from page id %d: %v", rightChildID, err)
-		}
+	t.Run("Verify_right_child", func(t *testing.T) {
 		if rightChild.nodeType != NodeTypeLeaf {
-			t.Errorf("expected child nodeType to be NodeTypeLeaf, got %v", rightChild.nodeType)
-		}
-		expectedKeyCount := (MaxKeys + 1) - ((MaxKeys + 1) / 2)
-		if len(rightChild.keys) != expectedKeyCount {
-			t.Errorf("expected right node to have %d keys, got %d", expectedKeyCount, len(rightChild.keys))
+			t.Errorf("expected right child nodeType to be NodeTypeInternal, got %v", rightChild.nodeType)
 		}
 
-		for i := range expectedKeyCount {
-			startKey := uint64((MaxKeys + 1) / 2)
-			startValue := startKey + 1000
-			key := startKey + uint64(i)
-			value := startValue + uint64(i)
-			if rightChild.keys[i] != key {
-				t.Errorf("expected key %d at index %d, got %d", key, i, rightChild.keys[i])
-			}
-			if rightChild.values[i] != value {
-				t.Errorf("expected value %d at index %d, got %d", value, i, rightChild.values[i])
-			}
-		}
-		if rightChild.next != 0 {
-			t.Errorf("expected 0 to be next of right child, got %d", rightChild.next)
+		if rightChild.calculateSize() < mergeThreshold {
+			t.Errorf("expected right child size to be greater than %v, got %v", mergeThreshold, rightChild.calculateSize())
 		}
 	})
 
-	t.Run("Verify_all_keys_are_searchable", func(t *testing.T) {
-		for i := range MaxKeys + 1 {
-			key := uint64(i)
-			expectedValue := uint64(1000 + i)
+	t.Run("Verify_all_keys", func(t *testing.T) {
+		totalKeysInserted := i + 1
+		for i := range totalKeysInserted {
+			key := fmt.Appendf(nil, "key_%04d", i)
+			value := uint64(1000 + i)
 
-			value, err := index.Search(key)
+			val, err := index.Search(key)
 			if err != nil {
-				t.Errorf("failed to search for key %d: %v", key, err)
+				t.Fatalf("failed to search key %s: %v", key, err)
 			}
-
-			if value != expectedValue {
-				t.Errorf("expected value %d for key %d, got %d", expectedValue, key, value)
+			if value != val {
+				t.Errorf("expected value %d for key %s, got %d", value, key, val)
 			}
 		}
 	})
@@ -253,49 +228,83 @@ func TestInternalNodeSplit(t *testing.T) {
 	}
 
 	var keyCounter uint64 = 0
+	makeKey := func() []byte {
+		return fmt.Appendf(nil, "key_%010d", keyCounter)
+	}
 	value := func() uint64 { return keyCounter + 1000 }
 
-	t.Log("Phase1: Creating initial internal root")
-	for range MaxKeys + 1 {
-		err := index.Insert(keyCounter, value(), Upsert)
+	t.Log("phase1: Creating initial internal root")
+	for {
+		key := makeKey()
+		rootNode, _, _ := index.readNode(index.root)
+		entrySize := len(key) + slotSize + valueSize
+		if rootNode.calculateSize()+entrySize > splitThreshold {
+			break
+		}
+		err := index.Insert(key, value(), Upsert)
 		if err != nil {
-			t.Fatalf("phase1: failed to insert key %d, : %v", keyCounter, err)
+			t.Fatalf("phase1: failed to insert key %s, : %v", key, err)
 		}
 		keyCounter++
 	}
+	err := index.Insert(makeKey(), value(), Upsert)
+	if err != nil {
+		t.Fatalf("phase1: split failed: %v", err)
+	}
+	keyCounter++
 
-	t.Logf("Phase2: Filling internal root node with %d keys", MaxKeys)
-	for range MaxKeys - 1 {
-		numToFillAndSplit := (MaxKeys + 1) / 2
-		for range numToFillAndSplit {
-			err := index.Insert(keyCounter, value(), Upsert)
+	t.Log("phase2: Filling internal root node")
+	for {
+		rootNode, _, _ := index.readNode(index.root)
+		key := makeKey()
+		if rootNode.calculateSize()+len(key)+slotSize+childSize > splitThreshold {
+			break
+		}
+		for {
+			rightChildID := rootNode.children[len(rootNode.children)-1]
+			rightChild, _, _ := index.readNode(rightChildID)
+			key := makeKey()
+			entrySize := len(key) + slotSize + valueSize
+			if rightChild.calculateSize()+entrySize > splitThreshold {
+				break
+			}
+			err := index.Insert(key, value(), Upsert)
 			if err != nil {
-				t.Fatalf("phase2: failed to insert key %d, : %v", keyCounter, err)
+				t.Fatalf("phase2: failed to insert key %s: %v", key, err)
 			}
 			keyCounter++
 		}
-	}
-	root, _, _ := index.readNode(index.root)
-	if len(root.keys) != MaxKeys {
-		t.Fatalf("phase2: expected root node to be filled with %d keys, got %d", MaxKeys, len(root.keys))
-	}
-
-	t.Log("Phase3: fill the target leaf node")
-	numToFill := MaxKeys / 2
-	for range numToFill {
-		err := index.Insert(keyCounter, value(), Upsert)
+		err := index.Insert(makeKey(), value(), Upsert)
 		if err != nil {
-			t.Fatalf("phase3: failed to insert key %d, : %v", keyCounter, err)
+			t.Fatalf("phase2: rightmost child split failed: %v", err)
 		}
 		keyCounter++
 	}
 
-	t.Log("Phase4: trigger the internal node split")
-	triggerKey := keyCounter
-	err := index.Insert(triggerKey, value(), Upsert)
-	if err != nil {
-		t.Fatalf("phase4: failed to insert trigger key %d: %v", triggerKey, err)
+	t.Log("phase3: trigger internal node split")
+	rootNode, _, _ := index.readNode(index.root)
+	for {
+		rightChildID := rootNode.children[len(rootNode.children)-1]
+		rightChild, _, _ := index.readNode(rightChildID)
+		key := makeKey()
+		entrySize := len(key) + slotSize + valueSize
+		if rightChild.calculateSize()+entrySize > splitThreshold {
+			break
+		}
+		err := index.Insert(key, value(), Upsert)
+		if err != nil {
+			t.Fatalf("phase3: failed to insert key %s, : %v", key, err)
+		}
+		keyCounter++
 	}
+
+	finalKeyCount := keyCounter
+	err = index.Insert(makeKey(), value(), Upsert)
+	if err != nil {
+		t.Fatalf("phase3: failed to insert trigger key %s: %v", makeKey(), err)
+	}
+
+	t.Log("phase4: verifying tree structure and data integrity")
 
 	t.Run("Verify_new_root", func(t *testing.T) {
 		newRoot, _, err := index.readNode(index.root)
@@ -324,6 +333,21 @@ func TestInternalNodeSplit(t *testing.T) {
 		}
 		if child.nodeType != NodeTypeInternal {
 			t.Errorf("expected child of new root to be internal (tree height 3), but got %v", child.nodeType)
+		}
+	})
+
+	t.Run("Verify_all_keys_searchable", func(t *testing.T) {
+		keyCounter = 0
+		for keyCounter <= finalKeyCount {
+			key := makeKey()
+			val, err := index.Search(key)
+			if err != nil {
+				t.Fatalf("phase4: failed to search key %s: %v", key, err)
+			}
+			if val != value() {
+				t.Errorf("phase4: expected %d for key %s, got %d", value(), key, val)
+			}
+			keyCounter++
 		}
 	})
 }

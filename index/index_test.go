@@ -110,7 +110,8 @@ func TestSearchEmptyIndex(t *testing.T) {
 	if index == nil {
 		t.Fatalf("expected index got nil")
 	}
-	_, err := index.Search(100)
+	key := []byte("key1")
+	_, err := index.Search(key)
 	if !errors.Is(err, ErrKeyNotFound) {
 		t.Fatalf("expected %v, got %v", ErrKeyNotFound, err)
 	}
@@ -124,7 +125,11 @@ func TestSearchSingleNode(t *testing.T) {
 	}
 
 	root, rootPage, _ := index.readNode(1)
-	root.keys = []uint64{10, 20, 30}
+	root.keys = [][]byte{
+		[]byte("key1"),
+		[]byte("key2"),
+		[]byte("key3"),
+	}
 	root.values = []uint64{100, 200, 300}
 
 	err := index.writeNode(rootPage, root)
@@ -134,43 +139,37 @@ func TestSearchSingleNode(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		key           uint64
+		key           []byte
 		expectedValue uint64
 		expectedErr   error
 	}{
 		{
 			name:          "Find existing key in middle",
-			key:           20,
+			key:           []byte("key2"),
 			expectedValue: 200,
 			expectedErr:   nil,
 		},
 		{
 			name:          "Find first existing key",
-			key:           10,
+			key:           []byte("key1"),
 			expectedValue: 100,
 			expectedErr:   nil,
 		},
 		{
 			name:          "Find last existing key",
-			key:           30,
+			key:           []byte("key3"),
 			expectedValue: 300,
 			expectedErr:   nil,
 		},
 		{
 			name:          "Find non-existent key (larger)",
-			key:           140,
+			key:           []byte("key4"),
 			expectedValue: 0,
 			expectedErr:   ErrKeyNotFound,
 		},
 		{
 			name:          "Find non-existent key (smaller)",
-			key:           5,
-			expectedValue: 0,
-			expectedErr:   ErrKeyNotFound,
-		},
-		{
-			name:          "Find non-existent key (between)",
-			key:           25,
+			key:           []byte("akey"),
 			expectedValue: 0,
 			expectedErr:   ErrKeyNotFound,
 		},
