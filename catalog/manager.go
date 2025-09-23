@@ -141,3 +141,7 @@ func (m *Manager) GetTable(name string) (*Schema, error) {
 
 	return &schema, nil
 }
+
+func (m *Manager) Close() error {
+	return m.store.Close()
+}

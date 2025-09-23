@@ -172,6 +172,13 @@ func (db *Database) Delete(tableName string, primaryKey tuple.Value) error {
 	return nil
 }
 
+func (db *Database) CreateTable(tableName string, columns []catalog.Column) (*catalog.Schema, error) {
+	return db.catalog.CreateTable(tableName, columns)
+}
+
 func (db *Database) Close() error {
-	return db.store.Close()
+	if err := db.store.Close(); err != nil {
+		return err
+	}
+	return db.catalog.Close()
 }
