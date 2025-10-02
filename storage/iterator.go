@@ -9,8 +9,8 @@ type Iterator struct {
 	cursor Cursor
 }
 
-func (s *Store) NewIterator() (*Iterator, error) {
-	cursor, err := s.index.NewCursor()
+func (s *Store) NewIterator(startKey, endKey []byte) (*Iterator, error) {
+	cursor, err := s.index.NewCursor(startKey, endKey)
 	if err != nil {
 		return nil, err
 	}

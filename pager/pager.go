@@ -45,7 +45,7 @@ type cacheEntry struct {
 }
 
 func NewPager(filename string) (*Pager, error) {
-	file, err := os.OpenFile(filename, os.O_RDWR|os.O_CREATE, 0644)
+	file, err := os.OpenFile(filename, os.O_RDWR|os.O_CREATE, 0o644)
 	if err != nil {
 		return nil, fmt.Errorf("pager: failed opening file: %w", err)
 	}
@@ -240,7 +240,7 @@ func (p *Pager) WriteAtOffset(offset uint64, data []byte) error {
 		return fmt.Errorf("pager: partial write: wrote %d bytes, expected %d bytes", n, len(data))
 	}
 
-	return p.file.Sync()
+	return nil
 }
 
 func (p *Pager) ReadAtOffset(offset uint64, size int) ([]byte, error) {

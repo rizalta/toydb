@@ -22,7 +22,7 @@ type Index interface {
 	Insert(key []byte, value uint64, insertMode index.InsertMode) error
 	Search(key []byte) (uint64, error)
 	Delete(key []byte) error
-	NewCursor() (*index.Cursor, error)
+	NewCursor(startKey, endKey []byte) (*index.Cursor, error)
 	Close() error
 }
 
