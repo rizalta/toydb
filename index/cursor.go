@@ -66,38 +66,33 @@ func (idx *Index) NewCursor(startKey, endKey []byte) (*Cursor, error) {
 }
 
 func (c *Cursor) Next() ([]byte, uint64, error) {
-	if c.isEnd {
-		return nil, 0, nil
-	}
+	for {
+		if c.isEnd {
+			return nil, 0, nil
+		}
 
-	n, _, err := c.index.readNode(c.pageID)
-	if err != nil {
-		return nil, 0, err
-	}
+		n, _, err := c.index.readNode(c.pageID)
+		if err != nil {
+			return nil, 0, err
+		}
 
-	if len(n.keys) == 0 {
-		c.isEnd = true
-		return nil, 0, nil
-	}
+		if c.keyNum < len(n.keys) {
+			key := n.keys[c.keyNum]
+			if c.endKey != nil && bytes.Compare(key, c.endKey) >= 0 {
+				c.isEnd = true
+				return nil, 0, nil
+			}
+			value := n.values[c.keyNum]
+			c.keyNum++
+			return key, value, nil
+		}
 
-	key := n.keys[c.keyNum]
-
-	if c.endKey != nil && bytes.Compare(key, c.endKey) >= 0 {
-		c.isEnd = true
-		return nil, 0, nil
-	}
-
-	value := n.values[c.keyNum]
-
-	c.keyNum++
-	if c.keyNum >= len(n.keys) {
 		c.pageID = n.next
 		c.keyNum = 0
-	}
 
-	if c.pageID == 0 {
-		c.isEnd = true
+		if c.pageID == 0 {
+			c.isEnd = true
+			return nil, 0, nil
+		}
 	}
-
-	return key, value, nil
 }

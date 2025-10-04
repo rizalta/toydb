@@ -13,13 +13,43 @@ type Scanner struct {
 	schema   *catalog.Schema
 }
 
-func (db *Database) Scan(tableName string) (*Scanner, error) {
+func (db *Database) Scan(tableName string, start, end tuple.Value) (*Scanner, error) {
 	schema, err := db.catalog.GetTable(tableName)
 	if err != nil {
 		return nil, err
 	}
 
-	iterator, err := db.store.NewIterator()
+	primaryKeyType := schema.Columns[schema.PrimaryKeyIndex].Type
+
+	var startKey, endKey []byte
+
+	if start == nil {
+		startKey = make([]byte, 8)
+		binary.BigEndian.PutUint32(startKey, schema.ID)
+	} else {
+		if !isTypeMatch(primaryKeyType, start) {
+			return nil, ErrInvalidPrimaryKey
+		}
+		startKey, err = createKey(schema.ID, start)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if end == nil {
+		endKey = make([]byte, 8)
+		binary.BigEndian.PutUint32(endKey, schema.ID+1)
+	} else {
+		if !isTypeMatch(primaryKeyType, end) {
+			return nil, ErrInvalidPrimaryKey
+		}
+		endKey, err = createKey(schema.ID, end)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	iterator, err := db.store.NewIterator(startKey, endKey)
 	if err != nil {
 		return nil, err
 	}
@@ -31,28 +61,13 @@ func (db *Database) Scan(tableName string) (*Scanner, error) {
 }
 
 func (s *Scanner) Next() (tuple.Tuple, error) {
-	for {
-		key, value, err := s.iterator.Next()
-		if err != nil {
-			return nil, err
-		}
-		if key == nil {
-			return nil, nil
-		}
-
-		if len(key) < 4 {
-			continue
-		}
-		tableID := binary.LittleEndian.Uint32(key[0:4])
-		if tableID == s.schema.ID {
-			row, err := tuple.Deserialize(value, s.schema)
-			if err != nil {
-				return nil, err
-			}
-			return row, nil
-		}
-		if tableID > s.schema.ID {
-			return nil, nil
-		}
+	_, value, err := s.iterator.Next()
+	if err != nil {
+		return nil, err
 	}
+	if value == nil {
+		return nil, nil
+	}
+
+	return tuple.Deserialize(value, s.schema)
 }

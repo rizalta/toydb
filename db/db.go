@@ -13,7 +13,7 @@ import (
 )
 
 var (
-	ErrInvalidPrimaryKey   = errors.New("db: primary key should be int64")
+	ErrInvalidPrimaryKey   = errors.New("db: invalid primary key")
 	ErrColumnCountMismatch = errors.New("db: number of values mismatch with schema column count")
 	ErrNotNULL             = errors.New("db: value cannot be NULL")
 )
@@ -44,16 +44,16 @@ func NewDatabase(dirPath string) (*Database, error) {
 
 func createKey(tableID uint32, primaryKey tuple.Value) ([]byte, error) {
 	keyPrefix := make([]byte, 4)
-	binary.LittleEndian.PutUint32(keyPrefix, tableID)
+	binary.BigEndian.PutUint32(keyPrefix, tableID)
 
 	var keySuffix []byte
 	switch pk := primaryKey.(type) {
 	case int64:
 		keySuffix = make([]byte, 8)
-		binary.LittleEndian.PutUint64(keySuffix, uint64(pk))
+		binary.BigEndian.PutUint64(keySuffix, uint64(pk))
 	case float64:
 		keySuffix = make([]byte, 8)
-		binary.LittleEndian.PutUint64(keySuffix, math.Float64bits(pk))
+		binary.BigEndian.PutUint64(keySuffix, math.Float64bits(pk))
 	case string:
 		keySuffix = []byte(pk)
 	default:
@@ -62,6 +62,22 @@ func createKey(tableID uint32, primaryKey tuple.Value) ([]byte, error) {
 
 	key := append(keyPrefix, keySuffix...)
 	return key, nil
+}
+
+func isTypeMatch(schemaType catalog.DataType, value tuple.Value) bool {
+	switch schemaType {
+	case catalog.TypeInt:
+		_, ok := value.(int64)
+		return ok
+	case catalog.TypeVarChar:
+		_, ok := value.(string)
+		return ok
+	case catalog.TypeFloat:
+		_, ok := value.(float64)
+		return ok
+	default:
+		return false
+	}
 }
 
 func (db *Database) Insert(tableName string, row tuple.Tuple) error {
@@ -100,6 +116,11 @@ func (db *Database) Get(tableName string, primaryKey tuple.Value) (tuple.Tuple, 
 	schema, err := db.catalog.GetTable(tableName)
 	if err != nil {
 		return nil, false, err
+	}
+
+	primaryKeyType := schema.Columns[schema.PrimaryKeyIndex].Type
+	if !isTypeMatch(primaryKeyType, primaryKey) {
+		return nil, false, ErrInvalidPrimaryKey
 	}
 
 	key, err := createKey(schema.ID, primaryKey)
@@ -159,6 +180,11 @@ func (db *Database) Delete(tableName string, primaryKey tuple.Value) error {
 	schema, err := db.catalog.GetTable(tableName)
 	if err != nil {
 		return err
+	}
+
+	primaryKeyType := schema.Columns[schema.PrimaryKeyIndex].Type
+	if !isTypeMatch(primaryKeyType, primaryKey) {
+		return ErrInvalidPrimaryKey
 	}
 
 	key, err := createKey(schema.ID, primaryKey)
