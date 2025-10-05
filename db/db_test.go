@@ -222,7 +222,7 @@ func TestPutGetStringPrimaryKey(t *testing.T) {
 	}
 
 	t.Run("get non existing key", func(t *testing.T) {
-		_, found, err := db.Get(tableName, int64(444))
+		_, found, err := db.Get(tableName, "user7474")
 		if err != nil {
 			t.Fatalf("failed to get for non existing key: %v", err)
 		}
