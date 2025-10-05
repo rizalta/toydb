@@ -18,9 +18,25 @@ var (
 	ErrNotNULL             = errors.New("db: value cannot be NULL")
 )
 
+type Store interface {
+	Add(key []byte, value []byte) error
+	Close() error
+	Delete(key []byte) (bool, error)
+	Get(key []byte) ([]byte, bool, error)
+	NewIterator(startKey []byte, endKey []byte) (*storage.Iterator, error)
+	Put(key []byte, value []byte) error
+	Update(key []byte, value []byte) error
+}
+
+type CatalogManager interface {
+	CreateTable(name string, columns []catalog.Column) (*catalog.Schema, error)
+	GetTable(name string) (*catalog.Schema, error)
+	Close() error
+}
+
 type Database struct {
-	store   *storage.Store
-	catalog *catalog.Manager
+	store   Store
+	catalog CatalogManager
 }
 
 func NewDatabase(dirPath string) (*Database, error) {
