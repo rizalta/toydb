@@ -13,6 +13,7 @@ var (
 	ErrMultiplePrimaryKeys   = errors.New("catalog: multiple primary keys")
 	ErrPrimaryKeyNotNull     = errors.New("catalog: primary key should be not null")
 	ErrUnsupportedPrimaryKey = errors.New("catalog: unsupported type for primary key")
+	ErrDuplicateColumnName   = errors.New("catalog: duplicate column name")
 )
 
 var metaKey = []byte("catalog:__schema__")
@@ -64,6 +65,14 @@ func (m *Manager) updateNextID() error {
 
 func (m *Manager) CreateTable(name string, columns []Column) (*Schema, error) {
 	schemaKey := []byte("table:" + name)
+
+	columnNames := make(map[string]struct{})
+	for _, c := range columns {
+		if _, exists := columnNames[c.Name]; exists {
+			return nil, ErrDuplicateColumnName
+		}
+		columnNames[c.Name] = struct{}{}
+	}
 
 	primaryKeyCols := slices.Collect(func(yield func(i int) bool) {
 		for i, c := range columns {
