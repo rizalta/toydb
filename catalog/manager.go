@@ -14,9 +14,14 @@ var (
 	ErrPrimaryKeyNotNull     = errors.New("catalog: primary key should be not null")
 	ErrUnsupportedPrimaryKey = errors.New("catalog: unsupported type for primary key")
 	ErrDuplicateColumnName   = errors.New("catalog: duplicate column name")
+	ErrIndexAlreadyExists    = errors.New("catalog: index already exists")
+	ErrIndexColumnNotFound   = errors.New("catalog: column not found to create index")
 )
 
-var metaKey = []byte("catalog:__schema__")
+var (
+	metaKey          = []byte("catalog:__schema__")
+	primaryIndexName = "PRIMARY"
+)
 
 type Store interface {
 	Get(key []byte) ([]byte, bool, error)
@@ -30,13 +35,14 @@ type Manager struct {
 }
 
 type ManagerMeta struct {
-	NextID uint32 `json:"next_id"`
+	NextID      uint32 `json:"next_id"`
+	NextIndexID uint32 `json:"next_index_id"`
 }
 
 func NewManager(store Store) (*Manager, error) {
 	m := &Manager{
 		store: store,
-		meta:  &ManagerMeta{NextID: 1},
+		meta:  &ManagerMeta{NextID: 1, NextIndexID: 1},
 	}
 
 	var meta ManagerMeta
@@ -54,13 +60,23 @@ func NewManager(store Store) (*Manager, error) {
 	return m, nil
 }
 
-func (m *Manager) updateNextID() error {
+func (m *Manager) updateMeta() error {
 	metaBytes, err := json.Marshal(m.meta)
 	if err != nil {
 		return err
 	}
 
 	return m.store.Put(metaKey, metaBytes)
+}
+
+func (m *Manager) updateSchema(schema *Schema) error {
+	schemaKey := []byte("table:" + schema.Name)
+	schemaBytes, err := json.Marshal(schema)
+	if err != nil {
+		return err
+	}
+
+	return m.store.Put(schemaKey, schemaBytes)
 }
 
 func (m *Manager) CreateTable(name string, columns []Column) (*Schema, error) {
@@ -108,24 +124,28 @@ func (m *Manager) CreateTable(name string, columns []Column) (*Schema, error) {
 	} else if found {
 		return nil, ErrAlreadyExists
 	}
+
 	schema := &Schema{
 		ID:              m.meta.NextID,
 		Name:            name,
 		Columns:         columns,
 		PrimaryKeyIndex: primaryKeyIndex,
 	}
-
-	schemaBytes, err := json.Marshal(schema)
-	if err != nil {
-		return nil, err
+	primaryKeyColName := schema.Columns[primaryKeyIndex].Name
+	schema.Indexes = []*IndexInfo{
+		{
+			ID:      0,
+			Name:    primaryIndexName,
+			Columns: []string{primaryKeyColName},
+		},
 	}
 
-	if err := m.store.Put(schemaKey, schemaBytes); err != nil {
+	if err := m.updateSchema(schema); err != nil {
 		return nil, err
 	}
 
 	m.meta.NextID++
-	if err := m.updateNextID(); err != nil {
+	if err := m.updateMeta(); err != nil {
 		return nil, err
 	}
 
@@ -149,6 +169,47 @@ func (m *Manager) GetTable(name string) (*Schema, error) {
 	}
 
 	return &schema, nil
+}
+
+func (m *Manager) CreateIndex(tableName, indexName string, columnNames []string) (*IndexInfo, error) {
+	schema, err := m.GetTable(tableName)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, idx := range schema.Indexes {
+		if idx.Name == indexName || slices.Equal(idx.Columns, columnNames) {
+			return nil, ErrIndexAlreadyExists
+		}
+	}
+
+	schemaColNames := make(map[string]struct{})
+	for _, c := range schema.Columns {
+		schemaColNames[c.Name] = struct{}{}
+	}
+	for _, c := range columnNames {
+		if _, exists := schemaColNames[c]; !exists {
+			return nil, ErrIndexColumnNotFound
+		}
+	}
+
+	newIndex := &IndexInfo{
+		ID:      m.meta.NextIndexID,
+		Name:    indexName,
+		Columns: columnNames,
+	}
+	schema.Indexes = append(schema.Indexes, newIndex)
+
+	if err := m.updateSchema(schema); err != nil {
+		return nil, err
+	}
+
+	m.meta.NextIndexID++
+	if err := m.updateMeta(); err != nil {
+		return nil, err
+	}
+
+	return newIndex, nil
 }
 
 func (m *Manager) Close() error {

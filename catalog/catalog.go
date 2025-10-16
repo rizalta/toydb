@@ -18,9 +18,16 @@ type Column struct {
 	IsNotNull    bool     `json:"is_not_null,omitempty"`
 }
 
+type IndexInfo struct {
+	ID      uint32   `json:"id"`
+	Name    string   `json:"name"`
+	Columns []string `json:"columns"`
+}
+
 type Schema struct {
-	ID              uint32   `json:"id"`
-	Name            string   `json:"name"`
-	Columns         []Column `json:"columns"`
-	PrimaryKeyIndex int      `json:"pk_index"`
+	ID              uint32       `json:"id"`
+	Name            string       `json:"name"`
+	Columns         []Column     `json:"columns"`
+	PrimaryKeyIndex int          `json:"pk_index"`
+	Indexes         []*IndexInfo `json:"indexes"`
 }
